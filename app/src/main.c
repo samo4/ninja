@@ -15,7 +15,6 @@
 #include "app_common.h"
 #include "network.h"
 #include "cloud.h"
-#include "fota.h"
 #include "location.h"
 #include "storage.h"
 #include "cbor_helper.h"
@@ -92,7 +91,6 @@ ZBUS_CHAN_DEFINE(priv_main_chan,
  */
 #define CHANNEL_LIST(X)						\
 	X(cloud_chan,		struct cloud_msg)		\
-	X(fota_chan,		struct fota_msg)		\
 	X(network_chan,		struct network_msg)		\
 	X(location_chan,	struct location_msg)		\
 	X(storage_chan,		struct storage_msg)		\
@@ -147,9 +145,6 @@ static void connected_waiting_exit(void *o);
 static void connected_sending_entry(void *o);
 static enum smf_state_result connected_sending_run(void *o);
 
-static void fota_entry(void *o);
-static enum smf_state_result fota_run(void *o);
-
 static void rebooting_entry(void *o);
 
 enum app_state {
@@ -172,8 +167,6 @@ enum app_state {
 			/* Sending buffered data to the cloud */
 			STATE_CONNECTED_SENDING,
 
-	/* Firmware Over-The-Air update is in progress */
-	STATE_FOTA,
 	/* Cleanup and reboot the device. Terminal state */
 	STATE_REBOOTING,
 };
@@ -211,12 +204,12 @@ struct main_state {
 	uint32_t storage_session_id;
 
 	/* Deep history of the last leaf state under STATE_RUNNING.
-	 * Needed to transition to the correct state when coming back from FOTA.
+	 * Needed to transition to the correct state after reboot.
 	 */
 	enum app_state running_history;
 
 	/* Flag to track if cloud has been synced on initial connection
-	 * Initial SHADOW_GET_DESIRED and FOTA_POLL_REQUEST
+	 * Initial SHADOW_GET_DESIRED
 	 */
 	bool cloud_synced_on_connect;
 
@@ -227,7 +220,6 @@ struct main_state {
 
 	/* Flags to track if each module is ready */
 	struct {
-		bool fota_ready;
 #if defined(CONFIG_APP_POWER)
 		bool power_ready;
 #endif /* CONFIG_APP_POWER */
@@ -305,14 +297,7 @@ static const struct smf_state states[] = {
 		&states[STATE_CONNECTED],
 		NULL
 	),
-	/* FOTA states */
-	[STATE_FOTA] = SMF_CREATE_STATE(
-		fota_entry,
-		fota_run,
-		NULL,
-		NULL,
-		NULL
-	),
+	/* Reboot state */
 	[STATE_REBOOTING] = SMF_CREATE_STATE(
 		rebooting_entry,
 		NULL,
@@ -360,36 +345,11 @@ static void poll_shadow_send(enum cloud_msg_type type)
 
 static void poll_triggers_send(void)
 {
-	int err;
-	struct fota_msg fota_msg = { .type = FOTA_POLL_REQUEST };
-
-	err = zbus_chan_pub(&fota_chan, &fota_msg, PUB_TIMEOUT);
-	if (err) {
-		LOG_ERR("Failed to publish FOTA poll trigger, error: %d", err);
-		SEND_FATAL_ERROR();
-
-		return;
-	}
-
-	/* Get the latest device configuration by polling the desired section of the shadow */
+	/* Get the latest device configuration by polling the delta section of the shadow */
 	poll_shadow_send(CLOUD_SHADOW_GET_DELTA);
 }
 
 /* Common helpers for substates */
-
-static void handle_fota_reboot_request(struct main_state *state_object)
-{
-	struct storage_msg storage_msg = { .type = STORAGE_CLEAR };
-	int err = zbus_chan_pub(&storage_chan, &storage_msg, PUB_TIMEOUT);
-
-	if (err) {
-		LOG_ERR("Failed to publish storage clear message, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
-
-	smf_set_state(SMF_CTX(state_object), &states[STATE_REBOOTING]);
-}
 
 static void trigger_sampling(struct main_state *state_object)
 {
@@ -511,7 +471,7 @@ static void storage_send_data(struct main_state *state_object)
 	}
 }
 
-/* Send stored data now, poll cloud/FOTA, and restart cloud send timer */
+/* Send stored data now and restart cloud send timer */
 static void cloud_send_now(struct main_state *state_object)
 {
 	storage_send_data(state_object);
@@ -795,11 +755,7 @@ static void check_modules_ready(const struct main_state *state_object)
 	const struct priv_main_msg msg = { .type = MAIN_MODULES_READY };
 	int err;
 
-	if (state_object->modules_ready.fota_ready &&
-#if defined(CONFIG_APP_POWER)
-	    state_object->modules_ready.power_ready &&
-#endif /* CONFIG_APP_POWER */
-	    state_object->modules_ready.location_ready) {
+	if (state_object->modules_ready.location_ready) {
 		err = zbus_chan_pub(&priv_main_chan, &msg, PUB_TIMEOUT);
 		if (err) {
 			LOG_ERR("Failed to publish MAIN_MODULES_READY message, error: %d", err);
@@ -817,28 +773,7 @@ static enum smf_state_result waiting_for_modules_init_run(void *o)
 	struct main_state *state_object = (struct main_state *)o;
 
 	/* Update the extended state per module, and check if all modules are ready. */
-	if (state_object->chan == &fota_chan) {
-		const struct fota_msg *msg = (const struct fota_msg *)state_object->msg_buf;
-
-		if (msg->type == FOTA_MODULE_READY) {
-			state_object->modules_ready.fota_ready = true;
-			check_modules_ready(state_object);
-			return SMF_EVENT_HANDLED;
-		} else if (msg->type == FOTA_REQUEST_REBOOT) {
-			handle_fota_reboot_request(state_object);
-			return SMF_EVENT_HANDLED;
-		}
-#if defined(CONFIG_APP_POWER)
-	} else if (state_object->chan == &power_chan) {
-		const struct power_msg *msg = (const struct power_msg *)state_object->msg_buf;
-
-		if (msg->type == POWER_MODULE_READY) {
-			state_object->modules_ready.power_ready = true;
-			check_modules_ready(state_object);
-			return SMF_EVENT_HANDLED;
-		}
-#endif /* CONFIG_APP_POWER */
-	} else if (state_object->chan == &location_chan) {
+	if (state_object->chan == &location_chan) {
 		const struct location_msg *msg = (const struct location_msg *)state_object->msg_buf;
 
 		if (msg->type == LOCATION_MODULE_READY) {
@@ -865,25 +800,8 @@ static enum smf_state_result running_run(void *o)
 {
 	struct main_state *state_object = (struct main_state *)o;
 
-	/* Handle top-level FOTA requests across all running substates. */
-	if (state_object->chan == &fota_chan) {
-		const struct fota_msg *msg = (const struct fota_msg *)state_object->msg_buf;
-
-		if (msg->type == FOTA_REQUEST_REBOOT) {
-			handle_fota_reboot_request(state_object);
-
-			return SMF_EVENT_HANDLED;
-		}
-
-		if (msg->type == FOTA_STARTING) {
-			smf_set_state(SMF_CTX(state_object), &states[STATE_FOTA]);
-
-			return SMF_EVENT_HANDLED;
-		}
-	}
-
 	/* Handle cloud provisioning completion */
-	else if (state_object->chan == &cloud_chan) {
+	if (state_object->chan == &cloud_chan) {
 		const struct cloud_msg *msg = (const struct cloud_msg *)state_object->msg_buf;
 
 		if (msg->type == CLOUD_PROVISIONED) {
@@ -954,13 +872,12 @@ static void connected_entry(void *o)
 
 	state_object->running_history = STATE_CONNECTED;
 
-	/* On initial connection, update shadow reported info, and poll shadow desired and FOTA
-	 * status. Ensures synced states between device and cloud.
+	/* On initial connection, update shadow reported info, and poll shadow desired.
+	 * Ensures synced states between device and cloud.
 	 */
 	if (!state_object->cloud_synced_on_connect) {
 
 		int err;
-		struct fota_msg fota_msg = { .type = FOTA_POLL_REQUEST };
 		struct cloud_msg cloud_msg = {
 			.type = CLOUD_SHADOW_UPDATE_REPORTED_DEVICE
 		};
@@ -971,11 +888,6 @@ static void connected_entry(void *o)
 			SEND_FATAL_ERROR();
 
 			return;
-		}
-
-		err = zbus_chan_pub(&fota_chan, &fota_msg, PUB_TIMEOUT);
-		if (err) {
-			LOG_ERR("Failed to trigger FOTA polling on cloud connection: %d", err);
 		}
 
 		poll_shadow_send(CLOUD_SHADOW_GET_DESIRED);
@@ -1262,117 +1174,6 @@ static enum smf_state_result connected_sending_run(void *o)
 			smf_set_state(SMF_CTX(state_object),
 				      &states[STATE_CONNECTED_WAITING]);
 
-			return SMF_EVENT_HANDLED;
-		}
-	}
-
-	return SMF_EVENT_PROPAGATE;
-}
-
-/* STATE_FOTA */
-
-static void fota_entry(void *o)
-{
-	ARG_UNUSED(o);
-
-	LOG_DBG("%s", __func__);
-
-#if defined(CONFIG_APP_LED)
-	int err;
-	/* Purple pattern during download - indefinite for ongoing process */
-	struct led_msg led_msg = {
-		.type = LED_RGB_SET,
-		.red = 160,
-		.green = 32,
-		.blue = 240,
-		.duration_on_msec = 250,
-		.duration_off_msec = 2000,
-		.repetitions = -1,
-	};
-
-	err = zbus_chan_pub(&led_chan, &led_msg, PUB_TIMEOUT);
-	if (err) {
-		LOG_ERR("Failed to publish LED FOTA download pattern, error: %d", err);
-		SEND_FATAL_ERROR();
-
-		return;
-	}
-#endif /* CONFIG_APP_LED */
-}
-
-static enum smf_state_result fota_run(void *o)
-{
-	struct main_state *state_object = (struct main_state *)o;
-
-	/* High-level outcomes and requests from the FOTA module. */
-	if (state_object->chan == &fota_chan) {
-		const struct fota_msg *msg = (const struct fota_msg *)state_object->msg_buf;
-
-		switch (msg->type) {
-		case FOTA_NETWORK_DISCONNECT_NEEDED: {
-			/* The FOTA module needs the network to be disconnected before it can
-			 * continue. Forward the request to the network module; the matching
-			 * NETWORK_DISCONNECTED notification will be translated into
-			 * FOTA_NETWORK_DISCONNECTED below.
-			 */
-			struct network_msg net_msg = { .type = NETWORK_DISCONNECT };
-			int err = zbus_chan_pub(&network_chan, &net_msg, PUB_TIMEOUT);
-
-			if (err) {
-				LOG_ERR("Failed to publish network disconnect request, error: %d",
-					err);
-				SEND_FATAL_ERROR();
-			}
-
-			return SMF_EVENT_HANDLED;
-		}
-		case FOTA_REQUEST_REBOOT: {
-			handle_fota_reboot_request(state_object);
-
-			return SMF_EVENT_HANDLED;
-		}
-		case FOTA_ABORTED:
-			smf_set_state(SMF_CTX(state_object),
-				      &states[state_object->running_history]);
-
-			return SMF_EVENT_HANDLED;
-		default:
-			/* FOTA_STARTING is informational; main is already in STATE_FOTA. */
-			break;
-		}
-	}
-
-	/* Translate network disconnect notifications into FOTA_NETWORK_DISCONNECTED so the
-	 * FOTA module knows it can proceed.
-	 */
-	else if (state_object->chan == &network_chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
-
-		if (msg->type == NETWORK_DISCONNECTED) {
-			struct fota_msg fota_disconnected = {.type = FOTA_NETWORK_DISCONNECTED};
-			int err = zbus_chan_pub(&fota_chan, &fota_disconnected, PUB_TIMEOUT);
-
-			if (err) {
-				LOG_ERR("Failed to publish FOTA_NETWORK_DISCONNECTED, error: %d",
-					err);
-				SEND_FATAL_ERROR();
-			}
-
-			return SMF_EVENT_HANDLED;
-		}
-	}
-
-	/* Update cloud connection status to be able to return to the correct state in case
-	 * cloud connection is lost during FOTA.
-	 */
-	else if (state_object->chan == &cloud_chan) {
-		const struct cloud_msg *msg = (const struct cloud_msg *)state_object->msg_buf;
-
-		if (msg->type == CLOUD_DISCONNECTED) {
-			state_object->running_history = STATE_DISCONNECTED;
-			return SMF_EVENT_HANDLED;
-		} else if (msg->type == CLOUD_CONNECTED) {
-			state_object->running_history = STATE_CONNECTED;
 			return SMF_EVENT_HANDLED;
 		}
 	}

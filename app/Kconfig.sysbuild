@@ -5,8 +5,14 @@
 #
 
 choice BOOTLOADER
-	default BOOTLOADER_MCUBOOT if !BOARD_NATIVE_SIM
+	default BOOTLOADER_MCUBOOT if !BOARD_NATIVE_SIM && !BOARD_THINGY91_NRF9160_NS
 endchoice
+
+# Skip the board's own MCUboot default (see thingy91/Kconfig.sysbuild) so the
+# choice above falls through to BOOTLOADER_NONE for this target: no OTA, no
+# swap slots, application runs directly after TF-M.
+config THINGY91_NO_PREDEFINED_LAYOUT
+	default y if BOARD_THINGY91_NRF9160_NS
 
 config SECURE_BOOT_APPCORE
 	default y if BOARD_NRF9151DK_NRF9151_NS
@@ -15,7 +21,7 @@ config SECURE_BOOT_APPCORE
 # key; b0 verifies them. Without this, sysbuild autogenerates a new debug key on each pristine
 # build. Not for production.
 config SECURE_BOOT_SIGNING_KEY_FILE
-	default "$(ZEPHYR_NRF_MODULE_DIR)/boards/nordic/thingy91x/nsib_signing_key.pem"
+	default "$(ZEPHYR_NRF_MODULE_DIR)/boards/nordic/thingy91x/nsib_signing_key.pem" if SECURE_BOOT_APPCORE
 
 config WIFI_NRF70
 	default y if BOARD_THINGY91X_NRF9151_NS
