@@ -56,11 +56,17 @@ west update
 
 # Build for your target
 cd app
-west build -b thingy91x/nrf9151/ns   # Thingy:91 X
-# or
-west build -b nrf9151dk/nrf9151/ns   # nRF9151 DK
-# or
+
 west build -b thingy91/nrf9160/ns
+
+# flash the merged TF-M + application image
+west flash --erase --no-rebuild --hex-file build/app/zephyr/tfm_merged.hex
+
+
+# see console
+tio -b 115200 /dev/ttyACM0
+# or RTT
+JLinkRTTLogger -device nRF9160_xxAA -if SWD -speed 4000 -RTTAddress Auto
 ```
 
 See the [Getting Started](docs/common/getting_started.md) guide for detailed instructions on flashing, connecting to nRF Cloud, and testing.
@@ -91,25 +97,6 @@ This repository is a fork of the [nRF Asset Tracker Template](https://github.com
 | **Enable RTT console** — replaced UART (dead on Thingy:91 via nRF52840) with J-Link RTT                                                  | `app/boards/thingy91_nrf9160_ns.conf`                                                                                |
 | **Fix FOTA flash page size** — replaced hardcoded `CONFIG_SPI_NOR_FLASH_LAYOUT_PAGE_SIZE` with runtime flash API                         | `app/src/modules/fota/fota.c`                                                                                        |
 | **Reduce MCUboot size** — minimized stack, removed serial recovery, disabled multithreading (attempted before removing MCUboot entirely) | `app/sysbuild/mcuboot/prj.conf`                                                                                      |
-
-### Flashing
-
-```bash
-# Build
-cd app
-west build -b thingy91/nrf9160/ns
-
-# Flash TF-M + application merged image
-west flash --erase --no-rebuild --hex-file build/app/zephyr/tfm_merged.hex
-```
-
-### Serial output
-
-RTT is enabled (via J-Link):
-
-```bash
-JLinkRTTLogger -device nRF9160_xxAA -if SWD -speed 4000 -RTTAddress Auto
-```
 
 ---
 
