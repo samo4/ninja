@@ -1,0 +1,101 @@
+site_name: Asset Tracker Template
+site_url:
+use_directory_urls: false
+
+theme:
+  name: material
+  palette:
+    - scheme: custom-blue
+      toggle:
+        icon: material/lightbulb-outline
+        name: Switch to dark mode
+    - scheme: custom-blue-dark
+      toggle:
+        icon: material/lightbulb
+        name: Switch to light mode
+  # logo: assets/logo.png
+  # favicon: assets/logo.png
+  features:
+    - content.code.annotate
+    - content.tooltips
+    - content.tabs.link
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - toc.follow
+
+
+copyright:
+  Copyright &copy; 2026
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      linenums_style: pymdownx-inline
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+  - abbr
+  - admonition
+  - attr_list
+  - md_in_html
+  - meta
+  - pymdownx.details
+  - pymdownx.keys
+  - pymdownx.tabbed
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+      toc_depth: 4
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - macros
+  - search
+  - gh-admonitions
+
+ft_metadata:
+  ft:title: "Asset Tracker Template"
+  ft:clusterId: "asset-tracker-template-latest"
+  ft:locale: "en-US"
+  tags:
+    - "Asset Tracker Template"
+
+ft_options:
+  copy_button_on_content_code: true
+  nav_mapping: first_heading_as_page
+
+nav:
+  - Overview: index.md
+  - Getting started: common/getting_started.md
+  - Architecture: common/architecture.md
+  - Configuration: common/configuration.md
+  - Modifying the template: common/modifying.md
+  - Connecting: common/connecting.md
+  - Location services: common/location_services.md
+  - Achieving low power: common/low_power.md
+  - Firmware Updates (FOTA): common/fota.md
+  - Testing and CI setup: common/test_and_ci_setup.md
+  - Tooling and Troubleshooting: common/tooling_troubleshooting.md
+  - Known Issues: common/known_issues.md
+  - Modules:
+    - Main: modules/main.md
+    - Button: modules/button.md
+    - Cloud: modules/cloud.md
+    - Environmental: modules/environmental.md
+    - FOTA: modules/fota_module.md
+    - LED: modules/led.md
+    - Location: modules/location.md
+    - Network: modules/network.md
+    - Power: modules/power.md
+    - Storage: modules/storage.md
+    - UART Power Control: modules/uart_power_control.md
+  - Release artifacts: common/release.md
+  - Release notes: common/release_notes.md

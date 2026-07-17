@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2024 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/delete-node/ &b0_partition;
+/delete-node/ &s0_partition;
+/delete-node/ &s1_partition;
+/delete-node/ &external_flash_partition;
+#include "../../../boards/att_flash_partitions.dtsi"
+
+&uart0 {
+	status = "okay";
+	current-speed = <1000000>;
+};

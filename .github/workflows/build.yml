@@ -1,0 +1,382 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build scope: minimal (thingy91x only), release (all documented release artifacts), all (everything)"
+        type: choice
+        options:
+          - minimal
+          - release
+          - all
+        required: true
+        default: minimal
+      push_memory_badges:
+        description: Whether to parse thingy91x build log and push memory badges
+        type: boolean
+        required: false
+        default: false
+  workflow_call:
+    inputs:
+      nrfsdk_sha_update:
+        type: boolean
+        required: false
+        default: false
+      build_type:
+        description: |
+          Legacy build scope: minimal | release | all. Used as a fallback for
+          variants that have no explicit ``build_*`` input. Set to an empty
+          string when driving the build purely via per-variant inputs (e.g.
+          from ``build-and-target-test.yml``).
+        type: string
+        required: false
+        default: minimal
+      push_memory_badges:
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_base:
+        description: Build the base thingy91x firmware
+        type: boolean
+        required: false
+        default: false
+      build_nrf9151dk_base:
+        description: Build the base nrf9151dk firmware
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_debug:
+        description: Build the thingy91x debug (memfault) firmware
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_mqtt:
+        description: Build the thingy91x firmware with the MQTT cloud module
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_buffer_flash:
+        description: Build the thingy91x firmware with the flash buffer backend
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_buffer_ram:
+        description: Build the thingy91x firmware with the RAM buffer backend
+        type: boolean
+        required: false
+        default: false
+      build_thingy91x_mtrace:
+        description: Build the thingy91x firmware with modem trace on UART
+        type: boolean
+        required: false
+        default: false
+      build_nrf9151dk_mtrace:
+        description: Build the nrf9151dk firmware with modem trace on UART
+        type: boolean
+        required: false
+        default: false
+      build_nrf9151dk_ext_gnss:
+        description: Build the nrf9151dk firmware with external GNSS antenna
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      run_id:
+        description: The run ID of the workflow to fetch artifacts from
+        value: ${{ jobs.build.outputs.run_id }}
+      version:
+        description: The version of the firmware built on this run_id
+        value: ${{ jobs.build.outputs.version }}
+      ncsupdate_pr:
+        description: Pull request id for west ncs pointer
+        value: ${{ jobs.build.outputs.ncsupdate_pr }}
+
+  pull_request:
+    paths-ignore:
+      - "tests/**"
+      - "docs/**"
+      - "scripts/**"
+      - "README.md"
+      - ".github/workflows/*.yml"
+      - "!.github/workflows/build.yml"
+
+permissions:
+  contents: read
+
+# Cancel any in-progress run for the same PR
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    runs-on: build_self_hosted
+    steps:
+      - name: Prune old Docker resources
+        run: docker system prune --force --filter "until=48h"
+
+      - name: Remove stale runner temp entries
+        run: |
+          # GitHub Actions stores per-job temp files under _work/_temp.
+          runner_temp_root="$(dirname "${RUNNER_TEMP}")"
+          find "$runner_temp_root" -mindepth 1 -maxdepth 1 -mmin +2880 \
+            ! -path "$RUNNER_TEMP" \
+            -exec rm -rf {} + 2>/dev/null || true
+
+  build:
+    needs: cleanup
+    runs-on: build_self_hosted
+    container: ghcr.io/zephyrproject-rtos/ci:v0.29.2
+    env:
+      CMAKE_PREFIX_PATH: /opt/toolchains
+    outputs:
+      run_id: ${{ github.run_id }}
+      version: ${{ env.VERSION }}
+      ncsupdate_pr: ${{ steps.pr.outputs.pull-request-number }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          path: asset-tracker-template
+
+      - name: Initialize
+        working-directory: asset-tracker-template
+        run: |
+          if [ ! -d "../.west" ]; then
+            west init -l .
+          else
+            echo ".west folder already exists, skipping west init."
+          fi
+          if [ "$NRFSDK_SHA_UPDATE" = "true" ]; then
+            NRFSDK_SHA=$(git ls-remote https://github.com/nrfconnect/sdk-nrf main | awk '{print $1}')
+            sed -i "/revision:/s/\( *revision: *\).*/\1${NRFSDK_SHA}/" west.yml
+            echo Configuring build on NCS rev ${NRFSDK_SHA}
+            echo "NRFSDK_SHA=${NRFSDK_SHA}" >> $GITHUB_ENV
+          fi
+          west update -o=--depth=1 -n
+          west blobs fetch hal_nordic
+        env:
+          NRFSDK_SHA_UPDATE: ${{ inputs.nrfsdk_sha_update }}
+
+      - name: Install dependencies
+        run: |
+          # The Matter IDL is part of requirements-build.txt, but it's not available
+          # in pypi so we need to install it from the source code
+          MATTER_IDL_PATH=modules/lib/matter/scripts/py_matter_idl
+          if [ -d $MATTER_IDL_PATH ]; then
+            pip install -e $MATTER_IDL_PATH
+          fi
+          pip install -r nrf/scripts/requirements-build.txt
+          rm -rf artifacts
+          mkdir -p artifacts
+
+      - name: Set VERSION environment variable
+        shell: bash
+        run: |
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+          else
+            echo "VERSION=${{ github.sha }}" >> $GITHUB_ENV
+          fi
+
+      - name: Block release if app/VERSION does not match tag
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        working-directory: asset-tracker-template
+        shell: bash
+        run: |
+          EXPECTED_VERSION="${{ github.ref_name }}"
+          CURRENT_MAJOR=$(grep VERSION_MAJOR app/VERSION | awk '{print $3}')
+          CURRENT_MINOR=$(grep VERSION_MINOR app/VERSION | awk '{print $3}')
+          CURRENT_PATCH=$(grep PATCHLEVEL app/VERSION | awk '{print $3}')
+          VERSION_STR="v${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}"
+          if [ "$VERSION_STR" != "$EXPECTED_VERSION" ]; then
+            echo "ERROR: app/VERSION ($VERSION_STR) does not match release tag ($EXPECTED_VERSION)"
+            exit 1
+          fi
+
+      - name: Update VERSION file for release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        working-directory: asset-tracker-template
+        run: |
+          python3 scripts/app_version.py ${GITHUB_REF_NAME} > app/VERSION
+          cat app/VERSION
+
+      - name: Set build type
+        # Fall back to ``minimal`` for the ``pull_request`` trigger which
+        # does not pass any inputs. When the workflow is invoked via
+        # ``workflow_call`` with an empty ``build_type`` (e.g. by
+        # ``build-and-target-test.yml`` driving the build via the
+        # per-variant ``build_*`` inputs) the resolved value is the empty
+        # string which disables the legacy fallback on every step.
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.build_type }}" ]]; then
+            echo "build_type=${{ inputs.build_type }}" >> "$GITHUB_ENV"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "build_type=minimal" >> "$GITHUB_ENV"
+          else
+            echo "build_type=" >> "$GITHUB_ENV"
+          fi
+
+      # Asset Tracker Template firmware build
+      - name: Build thingy91x firmware
+        if: ${{ inputs.build_thingy91x_base || env.build_type == 'minimal' || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          version: ${{ env.VERSION }}
+          path: asset-tracker-template/app
+          push_memory_badges: ${{ inputs.push_memory_badges }}
+
+      - name: Generate Memory Reports and Visualizations
+        if: ${{ inputs.push_memory_badges }}
+        continue-on-error: true
+        working-directory: asset-tracker-template
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Install required packages
+          pip install pandas plotly --break-system-packages
+
+          # Generate sunburst charts first
+          python3 scripts/sunburst_from_mem_report.py ../artifacts/rom_report_thingy91x.json
+          python3 scripts/sunburst_from_mem_report.py ../artifacts/ram_report_thingy91x.json
+
+          # Generate badges, history plots, and push everything to gh-pages
+          ./tests/on_target/scripts/update_memory_badges.sh \
+              ../artifacts/build_output_thingy91x.log \
+              ../artifacts/rom_report_thingy91x.html \
+              ../artifacts/ram_report_thingy91x.html
+
+      - name: Build nrf9151dk firmware
+        if: ${{ inputs.build_nrf9151dk_base || env.build_type == 'minimal' || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: nrf9151dk/nrf9151/ns
+          short_board: nrf9151dk
+          version: ${{ env.VERSION }}
+          path: asset-tracker-template/app
+
+      # Asset Tracker Template debug firmware build
+      - name: Build thingy91x debug firmware
+        if: ${{ inputs.build_thingy91x_debug || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          memfault_release: ${{ env.build_type == 'release' }}
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          version: ${{ env.VERSION }}-debug
+          path: asset-tracker-template/app
+          debug: true
+
+      # Asset Tracker Template firmware build with MQTT cloud module for Thingy91x
+      - name: Build thingy91x firmware with MQTT cloud module
+        if: ${{ inputs.build_thingy91x_mqtt || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          version: ${{ env.VERSION }}-mqtt
+          path: asset-tracker-template/app
+          mqtt: true
+
+      - name: Build thingy91x firmware with buffered mode flash backend
+        if: ${{ inputs.build_thingy91x_buffer_flash || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          version: ${{ env.VERSION }}-buffer-flash
+          path: asset-tracker-template/app
+          buffer_flash: true
+
+      - name: Build thingy91x firmware with buffered mode RAM backend
+        if: ${{ inputs.build_thingy91x_buffer_ram || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          version: ${{ env.VERSION }}-buffer-ram
+          path: asset-tracker-template/app
+          buffer_ram: true
+
+      - name: Build thingy91x with modem trace on uart
+        if: ${{ inputs.build_thingy91x_mtrace || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: thingy91x/nrf9151/ns
+          short_board: thingy91x
+          modem_trace: true
+          version: ${{ env.VERSION }}-mtrace
+          path: asset-tracker-template/app
+
+      - name: Build nrf9151dk with modem trace on uart
+        if: ${{ inputs.build_nrf9151dk_mtrace || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: nrf9151dk/nrf9151/ns
+          short_board: nrf9151dk
+          modem_trace: true
+          version: ${{ env.VERSION }}-mtrace
+          path: asset-tracker-template/app
+
+      - name: Build nrf9151dk with external GNSS antenna
+        if: ${{ inputs.build_nrf9151dk_ext_gnss || env.build_type == 'release' || env.build_type == 'all' }}
+        uses: ./asset-tracker-template/.github/actions/build-step
+        with:
+          board: nrf9151dk/nrf9151/ns
+          short_board: nrf9151dk
+          external_gnss: true
+          version: ${{ env.VERSION }}-ext-gnss
+          path: asset-tracker-template/app
+
+      - name: Generate PR app-size diff for thing91x image
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BOARD: thingy91x/nrf9151/ns
+          PR_HEAD_ELF: artifacts/asset-tracker-template-${{ env.VERSION }}-thingy91x-nrf91.elf
+          PR_HEAD_BUILD_LOG: artifacts/build_output_thingy91x.log
+          SIZE_COMMENT_PATH: ${{ github.workspace }}/size-comment.md
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          bash asset-tracker-template/scripts/ci/pr-size-diff.sh
+
+      - name: Post PR app-size sticky comment for thingy91x image
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          header: app-size-report
+          path: ${{ github.workspace }}/size-comment.md
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware-artifacts-att
+          path: artifacts/*
+
+      - name: Print run-id and fw version
+        run: |
+          echo Run id: ${{ github.run_id }}
+          echo Version: ${{ env.VERSION }}
+
+      - name: Create update PR
+        if: ${{ inputs.nrfsdk_sha_update }}
+        uses: peter-evans/create-pull-request@v7
+        id: pr
+        with:
+          path: asset-tracker-template
+          add-paths: west.yml
+          commit-message: "manifest: auto: Update nrf-sdk SHA"
+          branch: nrf-manifest-auto-branch
+          base: main
+          title: "manifest: auto: Update nrf-sdk SHA"
+
+      - name: Check outputs
+        run: |
+          echo PR created: ${{ steps.pr.outputs.pull-request-number }}

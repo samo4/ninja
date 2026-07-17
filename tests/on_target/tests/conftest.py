@@ -1,0 +1,278 @@
+##########################################################################################
+# Copyright (c) 2024 Nordic Semiconductor
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+##########################################################################################
+
+import os
+import re
+import pytest
+import types
+from utils.flash_tools import recover_device
+from utils.uart import Uart, UartBinary
+import sys
+sys.path.append(os.getcwd())
+from utils.logger import get_logger
+from utils.nrfcloud import NRFCloud, NRFCloudFOTA
+
+logger = get_logger()
+
+UART_TIMEOUT = 60 * 30
+
+SEGGER = os.getenv('SEGGER')
+UART_ID = os.getenv('UART_ID', SEGGER)
+DEVICE_UUID = os.getenv('UUID')
+NRFCLOUD_API_KEY = os.getenv('NRFCLOUD_API_KEY')
+DUT_DEVICE_TYPE = os.getenv('DUT_DEVICE_TYPE')
+
+def get_uarts():
+    # Handle platform-specific serial device paths
+    import platform
+
+    if platform.system() == "Darwin":  # macOS
+        base_path = "/dev"
+    else:  # Linux
+        base_path = "/dev/serial/by-id"
+
+    try:
+        if platform.system() == "Darwin":
+            serial_paths = [os.path.join(base_path, entry) for entry in os.listdir(base_path)
+                          if entry.startswith("tty.")]
+            logger.info(f"Found serial devices: {serial_paths}")
+        else:
+            serial_paths = [os.path.join(base_path, entry) for entry in os.listdir(base_path)]
+    except (FileNotFoundError, PermissionError) as e:
+        raise RuntimeError("Failed to list serial devices") from e
+    if not UART_ID:
+        raise RuntimeError("UART_ID not set")
+    uarts = [x for x in sorted(serial_paths) if UART_ID in x]
+    logger.info(f"Found UARTs: {uarts}")
+    return uarts
+
+def scan_log_for_assertions(log):
+    assert_counts = log.count("ASSERT")
+    if assert_counts > 0:
+        pytest.fail(f"{assert_counts} ASSERT found in log: {log}")
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logstart(nodeid, location):
+    logger.info(f"Starting test: {nodeid}")
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_logfinish(nodeid, location):
+    logger.info(f"Finished test: {nodeid}")
+
+@pytest.fixture(scope="session", autouse=True)
+def _purge_pending_fota_jobs():
+    """Cancel leftover FOTA jobs queued for the test device before any test runs. """
+    if NRFCLOUD_API_KEY and DEVICE_UUID:
+        try:
+            NRFCloudFOTA(api_key=NRFCLOUD_API_KEY).ensure_no_pending_fota_jobs(DEVICE_UUID)
+        except Exception as e:
+            logger.warning(f"Failed to purge pending FOTA jobs at session start: {e}")
+    yield
+
+@pytest.fixture(scope="function")
+def dut_board():
+    all_uarts = get_uarts()
+    if not all_uarts:
+        pytest.fail("No UARTs found")
+    log_uart_string = all_uarts[0]
+    uart = Uart(log_uart_string, timeout=UART_TIMEOUT)
+
+    if NRFCLOUD_API_KEY and DEVICE_UUID:
+        try:
+            NRFCloudFOTA(api_key=NRFCLOUD_API_KEY).ensure_no_pending_fota_jobs(DEVICE_UUID)
+        except Exception as e:
+            logger.warning(f"Failed to purge pending FOTA jobs at test start: {e}")
+
+    yield types.SimpleNamespace(
+        uart=uart,
+        device_type=DUT_DEVICE_TYPE
+    )
+
+    uart_log = uart.whole_log
+    if uart._serial_exception_count:
+        logger.warning(
+            f"UART SerialException count for test: {uart._serial_exception_count}"
+        )
+    uart.stop()
+    recover_device()
+
+    if NRFCLOUD_API_KEY and DEVICE_UUID:
+        try:
+            NRFCloudFOTA(api_key=NRFCLOUD_API_KEY).ensure_no_pending_fota_jobs(DEVICE_UUID)
+        except Exception as e:
+            logger.warning(f"Failed to purge pending FOTA jobs at test end: {e}")
+
+    scan_log_for_assertions(uart_log)
+
+@pytest.fixture(scope="function")
+def dut_cloud(dut_board):
+    if not NRFCLOUD_API_KEY:
+        pytest.skip("NRFCLOUD_API_KEY environment variable not set")
+    if not DEVICE_UUID:
+        pytest.skip("UUID environment variable not set")
+
+    cloud = NRFCloud(api_key=NRFCLOUD_API_KEY)
+    device_id = DEVICE_UUID
+
+    yield types.SimpleNamespace(
+        **dut_board.__dict__,
+        cloud=cloud,
+        device_id=device_id,
+    )
+
+@pytest.fixture(scope="function")
+def dut_fota(dut_board):
+    if not NRFCLOUD_API_KEY:
+        pytest.skip("NRFCLOUD_API_KEY environment variable not set")
+    if not DEVICE_UUID:
+        pytest.skip("UUID environment variable not set")
+
+    fota = NRFCloudFOTA(api_key=NRFCLOUD_API_KEY)
+    device_id = DEVICE_UUID
+    data = {
+        'job_id': '',
+    }
+
+    yield types.SimpleNamespace(
+        **dut_board.__dict__,
+        fota=fota,
+        device_id=device_id,
+        data=data
+    )
+    fota.ensure_no_pending_fota_jobs(device_id)
+
+
+@pytest.fixture(scope="module")
+def dut_traces(dut_board):
+    all_uarts = get_uarts()
+    trace_uart_string = all_uarts[1]
+    uart_trace = UartBinary(trace_uart_string)
+
+    yield types.SimpleNamespace(
+        **dut_board.__dict__,
+        trace=uart_trace,
+        )
+
+    uart_trace.stop()
+
+@pytest.fixture(scope="session")
+def hex_file():
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r"[0-9a-z\.]+"}-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def debug_hex_file():
+    # Skip if not thingy91x since debug build is only available for thingy91x
+    if DUT_DEVICE_TYPE != 'thingy91x':
+        pytest.skip("Debug build is only available for thingy91x")
+
+    # Search for the debug firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r'[0-9a-z\.]+'}-debug-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching debug firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def bin_file():
+    # Search for the firmware bin file in the artifacts folder
+    artifacts_dir = "artifacts"
+    hex_pattern = f"asset-tracker-template-{r"[0-9a-z\.]+"}-{DUT_DEVICE_TYPE}-nrf91-update-signed.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching firmware .bin file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def hex_file_patched():
+    # Skip if not thingy91x since patched build is only available for thingy91x
+    if DUT_DEVICE_TYPE != 'thingy91x':
+        pytest.skip("Patched build is only available for thingy91x")
+
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r"[0-9a-z\.]+"}-patched-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def hex_file_mqtt():
+    # Skip if not thingy91x since MQTT build is only available for thingy91x
+    if DUT_DEVICE_TYPE != 'thingy91x':
+        pytest.skip("mqtt build is only available for thingy91x")
+
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r"[0-9a-z\.]+"}-mqtt-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def hex_file_ext_gnss():
+    # Skip if not nrf9151dk since external GNSS build is only available for nrf9151dk
+    if DUT_DEVICE_TYPE != 'nrf9151dk':
+        pytest.skip("External GNSS build is only available for nrf9151dk")
+
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r'[0-9a-z\.]+'}-ext-gnss-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching external GNSS firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def hex_file_buffer_ram():
+    # Skip if not thingy91x since buffer RAM build is only available for thingy91x
+    if DUT_DEVICE_TYPE != 'thingy91x':
+        pytest.skip("Buffer RAM build is only available for thingy91x")
+
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r'[0-9a-z\.]+'}-buffer-ram-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching buffer RAM firmware .hex file found in the artifacts directory")
+
+@pytest.fixture(scope="session")
+def hex_file_buffer_flash():
+    # Skip if not thingy91x since buffer flash build is only available for thingy91x
+    if DUT_DEVICE_TYPE != 'thingy91x':
+        pytest.skip("Buffer flash build is only available for thingy91x")
+
+    # Search for the firmware hex file in the artifacts folder
+    artifacts_dir = "artifacts/"
+    hex_pattern = f"asset-tracker-template-{r'[0-9a-z\.]+'}-buffer-flash-{DUT_DEVICE_TYPE}-nrf91.hex"
+
+    for file in os.listdir(artifacts_dir):
+        if re.match(hex_pattern, file):
+            return os.path.join(artifacts_dir, file)
+
+    pytest.fail("No matching buffer flash firmware .hex file found in the artifacts directory")
