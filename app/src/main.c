@@ -15,7 +15,9 @@
 #include "app_common.h"
 #include "network.h"
 #include "cloud.h"
+#if defined(CONFIG_APP_LOCATION)
 #include "location.h"
+#endif
 #include "storage.h"
 #include "cbor_helper.h"
 
@@ -92,7 +94,7 @@ ZBUS_CHAN_DEFINE(priv_main_chan,
 #define CHANNEL_LIST(X)						\
 	X(cloud_chan,		struct cloud_msg)		\
 	X(network_chan,		struct network_msg)		\
-	X(location_chan,	struct location_msg)		\
+	IF_ENABLED(CONFIG_APP_LOCATION, (X(location_chan, struct location_msg)))	\
 	X(storage_chan,		struct storage_msg)		\
 	X(timer_chan,		struct timer_msg)		\
 	X(priv_main_chan,	struct priv_main_msg)		\
@@ -220,10 +222,12 @@ struct main_state {
 
 	/* Flags to track if each module is ready */
 	struct {
+#if defined(CONFIG_APP_LOCATION)
+		bool location_ready;
+#endif
 #if defined(CONFIG_APP_POWER)
 		bool power_ready;
 #endif /* CONFIG_APP_POWER */
-		bool location_ready;
 	} modules_ready;
 };
 
@@ -354,9 +358,12 @@ static void poll_triggers_send(void)
 static void trigger_sampling(struct main_state *state_object)
 {
 	int err;
+
+#if defined(CONFIG_APP_LOCATION)
 	struct location_msg location_msg = {
 		.type = LOCATION_SEARCH_TRIGGER,
 	};
+#endif
 
 #if defined(CONFIG_APP_LED)
 	/* Blue pattern to indicate sampling */
@@ -410,6 +417,7 @@ static void trigger_sampling(struct main_state *state_object)
 	}
 #endif /* CONFIG_APP_ENVIRONMENTAL */
 
+#if defined(CONFIG_APP_LOCATION)
 	err = zbus_chan_pub(&location_chan, &location_msg, PUB_TIMEOUT);
 	if (err) {
 		LOG_ERR("Failed to publish location search trigger, error: %d", err);
@@ -417,6 +425,7 @@ static void trigger_sampling(struct main_state *state_object)
 
 		return;
 	}
+#endif /* CONFIG_APP_LOCATION */
 }
 
 static void waiting_entry_common(const struct main_state *state_object)
@@ -755,6 +764,7 @@ static void check_modules_ready(const struct main_state *state_object)
 	const struct priv_main_msg msg = { .type = MAIN_MODULES_READY };
 	int err;
 
+#if defined(CONFIG_APP_LOCATION)
 	if (state_object->modules_ready.location_ready) {
 		err = zbus_chan_pub(&priv_main_chan, &msg, PUB_TIMEOUT);
 		if (err) {
@@ -763,6 +773,15 @@ static void check_modules_ready(const struct main_state *state_object)
 			return;
 		}
 	}
+#else
+	/* No modules that need initialization tracking, go straight to running. */
+	err = zbus_chan_pub(&priv_main_chan, &msg, PUB_TIMEOUT);
+	if (err) {
+		LOG_ERR("Failed to publish MAIN_MODULES_READY message, error: %d", err);
+		SEND_FATAL_ERROR();
+		return;
+	}
+#endif
 }
 
 /* Zephyr State Machine framework handlers */
@@ -773,6 +792,7 @@ static enum smf_state_result waiting_for_modules_init_run(void *o)
 	struct main_state *state_object = (struct main_state *)o;
 
 	/* Update the extended state per module, and check if all modules are ready. */
+#if defined(CONFIG_APP_LOCATION)
 	if (state_object->chan == &location_chan) {
 		const struct location_msg *msg = (const struct location_msg *)state_object->msg_buf;
 
@@ -781,9 +801,10 @@ static enum smf_state_result waiting_for_modules_init_run(void *o)
 			check_modules_ready(state_object);
 			return SMF_EVENT_HANDLED;
 		}
+#endif /* CONFIG_APP_LOCATION */
 
 	/* If all modules are ready, we can transition to the running state. */
-	} else if (state_object->chan == &priv_main_chan) {
+	if (state_object->chan == &priv_main_chan) {
 		const struct priv_main_msg *msg =
 			(const struct priv_main_msg *)state_object->msg_buf;
 
@@ -964,6 +985,7 @@ static enum smf_state_result disconnected_sampling_run(void *o)
 {
 	struct main_state *state_object = (struct main_state *)o;
 
+#if defined(CONFIG_APP_LOCATION)
 	if (state_object->chan == &location_chan) {
 		const struct location_msg *msg = (const struct location_msg *)state_object->msg_buf;
 
@@ -973,6 +995,7 @@ static enum smf_state_result disconnected_sampling_run(void *o)
 			return SMF_EVENT_HANDLED;
 		}
 	}
+#endif /* CONFIG_APP_LOCATION */
 
 	return SMF_EVENT_PROPAGATE;
 }
@@ -1070,6 +1093,7 @@ static enum smf_state_result connected_sampling_run(void *o)
 {
 	struct main_state *state_object = (struct main_state *)o;
 
+#if defined(CONFIG_APP_LOCATION)
 	if (state_object->chan == &location_chan) {
 		const struct location_msg *msg = (const struct location_msg *)state_object->msg_buf;
 
@@ -1078,8 +1102,9 @@ static enum smf_state_result connected_sampling_run(void *o)
 			return SMF_EVENT_HANDLED;
 		}
 	}
+#endif /* CONFIG_APP_LOCATION */
 
-	else if (state_object->chan == &storage_chan) {
+	if (state_object->chan == &storage_chan) {
 		const struct storage_msg *msg = (const struct storage_msg *)state_object->msg_buf;
 
 		if (msg->type == STORAGE_THRESHOLD_REACHED) {

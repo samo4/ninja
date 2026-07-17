@@ -18,5 +18,9 @@ venv
 .envrc
 .vscode
 sanity-out*
+*.pem
+*.csv
+onboard*
 twister-out*
 tests/on_target/artifacts/
+mfw_nrf9160_*.zip

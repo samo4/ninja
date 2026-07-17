@@ -57,7 +57,7 @@ west update
 # Build for your target
 cd app
 
-west build -b thingy91/nrf9160/ns
+west build -b thingy91/nrf9160/ns --pristine
 
 # flash the merged TF-M + application image
 west flash --erase --no-rebuild --hex-file build/app/zephyr/tfm_merged.hex
@@ -71,11 +71,41 @@ JLinkRTTLogger -device nRF9160_xxAA -if SWD -speed 4000 -RTTAddress Auto
 
 See the [Getting Started](docs/common/getting_started.md) guide for detailed instructions on flashing, connecting to nRF Cloud, and testing.
 
+### Connecting to nRF Cloud (non-Nordic SIM)
+
+If you are using a third-party SIM (not an nRF Cloud SIM), the device needs to be provisioned with credentials and registered on nRF Cloud manually.
+
+```bash
+pip3 install nrf-cloud-utils
+
+# Get an API key from [nrfcloud.com](https://nrfcloud.com) → **Account** → **API Keys**.
+
+# With the device powered on and connected to LTE, create a local certificate authority and provision credentials to the device over CoAP:
+
+create_ca_cert
+device_credentials_installer -d --ca *_ca.pem --ca-key *_prv.pem --coap --verify --id-imei --id-str nrf- -rtt
+
+# Register the device with your nRF Cloud account:
+nrf_cloud_onboard --api-key $API_KEY --csv onboard.csv
+```
+
+The device will authenticate and connect on the next provisioning attempt (up to 60 seconds).
+
+### Updating modem firmware
+
+If the device fails to connect with `-111` errors and the log shows `Failed to enable connection ID, err 22`, the modem firmware is too old for nRF Cloud's DTLS Connection ID. Download the latest `mfw_nrf9160_*.zip` from [Nordic's nRF9160 page](https://www.nordicsemi.com/Products/nRF9160/Download) and flash with nrfutil:
+
+```bash
+nrfutil device program --firmware mfw_nrf9160_1.3.7.zip --serial-number 260114597
+```
+
+After updating, reboot the device. No application reflash needed.
+
 ---
 
 ## Fork changes
 
-This repository is a fork of the [nRF Asset Tracker Template](https://github.com/nrfconnect/Asset-Tracker-Template), adapted for the original **Thingy:91 (nRF9160)** with significant trimming of features not needed for this project.
+This repository is a fork of the [nRF Asset Tracker Template](https://github.com/nrfconnect/Asset-Tracker-Template), adapted with significant trimming of features.
 
 ### Supported hardware
 
@@ -102,60 +132,4 @@ This repository is a fork of the [nRF Asset Tracker Template](https://github.com
 
 ## Documentation
 
-<table>
-  <tr>
-    <td><a href="docs/common/getting_started.md">Getting Started</a></td>
-    <td><a href="docs/common/architecture.md">Architecture</a></td>
-    <td><a href="docs/common/configuration.md">Configuration</a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/common/modifying.md">Modifying</a></td>
-    <td><a href="docs/modules/overview_modules.md">Modules</a></td>
-    <td><a href="docs/common/connecting.md">Connecting</a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/common/location_services.md">Location Services</a></td>
-    <td><a href="docs/common/low_power.md">Achieving Low Power</a></td>
-    <td><a href="docs/common/fota.md">Firmware Updates (FOTA)</a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/common/test_and_ci_setup.md">Testing and CI Setup</a></td>
-    <td><a href="docs/common/tooling_troubleshooting.md">Tooling and Troubleshooting</a></td>
-    <td><a href="docs/common/known_issues.md">Known Issues</a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/common/release.md">Release Artifacts</a></td>
-    <td><a href="docs/common/release_notes.md">Release Notes</a></td>
-    <td></td>
-  </tr>
-</table>
-
----
-
-## System Overview
-
-![System overview](docs/images/system_overview.svg)
-
-Core modules include:
-
-- **[Main](docs/modules/main.md)**: Implements the business logic and controls the overall application behavior.
-- **[Storage](docs/modules/storage.md)**: Stores data from enabled modules.
-- **[Network](docs/modules/network.md)**: Manages LTE connectivity and tracks network status.
-- **[Cloud](docs/modules/cloud.md)**: Handles communication with nRF Cloud using CoAP.
-- **[Location](docs/modules/location.md)**: Provides location services using GNSS, Wi-Fi, and cellular positioning.
-- **[Button](docs/modules/button.md)**: Reports button press events for user input.
-- **[FOTA](docs/modules/fota_module.md)**: Manages firmware over-the-air updates.
-
-Thingy:91 X specific modules:
-
-- **[Environmental](docs/modules/environmental.md)**: Collects environmental sensor data (temperature, humidity, pressure).
-- **[LED](docs/modules/led.md)**: Controls an RGB LED for visual indication.
-- **[Power](docs/modules/power.md)**: Monitors battery status and provides power management.
-- **[UART Power Control](docs/modules/uart_power_control.md)**: UART suspend/resume on VBUS changes.
-
-### Key Features
-
-- **State Machine Framework (SMF)**: Predictable behavior with run-to-completion model
-- **Message-Based Communication**: Loose coupling via [zbus](https://docs.nordicsemi.com/bundle/ncs-latest/page/zephyr/services/zbus/index.html) channels
-- **Modular Architecture**: Separation of concerns with dedicated threads for blocking operations
-- **Power Optimization**: LTE PSM enabled by default with configurable power-saving features
+See original.
