@@ -41,3 +41,29 @@
 &slot0_ns_partition {
 	reg = <0x00010000 0xee000>;
 };
+
+/*
+ * Carve out 2 KiB at the start of the application SRAM for the SEGGER RTT
+ * control block and buffers at a fixed, known address (0x2000c568).
+ * The RTT section is placed there via CONFIG_SEGGER_RTT_SECTION_CUSTOM_DTS_REGION
+ * and the rtt_custom_section alias below.
+ */
+/delete-node/ &sram0_ns_app;
+
+&sram0_ns {
+	sram0_ns_app: sram0_ns@4d68 {
+		reg = <0x4d68 0x33298>;
+	};
+};
+
+/ {
+	rtt_sram: sram@2000c568 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2000c568 0x800>;
+		zephyr,memory-region = "SRAM_RTT";
+	};
+
+	aliases {
+		rtt-custom-section = &rtt_sram;
+	};
+};

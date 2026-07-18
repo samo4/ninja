@@ -1,0 +1,45 @@
+#
+# Copyright (c) 2025 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menuconfig APP_CLOUD_POST
+	bool "Cloud POST module"
+	depends on REST_CLIENT
+	default y
+	help
+	  Module that collects battery and environmental sensor data and
+	  sends it as a CSV POST request to a configurable HTTP endpoint.
+
+if APP_CLOUD_POST
+
+config APP_CLOUD_POST_HOST
+	string "API hostname"
+	default "balirkaback.azurewebsites.net"
+	help
+	  Hostname of the REST API endpoint.
+
+config APP_CLOUD_POST_PORT
+	int "API port"
+	default 443
+	range 1 65535
+	help
+	  Port of the REST API endpoint.
+
+config APP_CLOUD_POST_SEC_TAG
+	int "TLS security tag"
+	default 168448
+	help
+	  Security tag for TLS connection to the REST API endpoint.
+	  The corresponding CA certificate must be provisioned.
+
+config APP_CLOUD_POST_THREAD_STACK_SIZE
+	int "Thread stack size"
+	default 8192
+
+module = APP_CLOUD_POST
+module-str = Cloud POST
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # APP_CLOUD_POST

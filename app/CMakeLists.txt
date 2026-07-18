@@ -7,26 +7,17 @@
 cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project("Asset Tracker Template")
+project("Ninja")
 
-# Include files that are common for all modules
 zephyr_include_directories(src/common)
-zephyr_include_directories(memfault/config)
 
-# Add main application source
 target_sources(app PRIVATE src/main.c)
 
-# Module source folders
 add_subdirectory(src/modules/network)
-add_subdirectory(src/cbor)
 
 # Optional modules
-add_subdirectory_ifdef(CONFIG_APP_BUTTON src/modules/button)
 add_subdirectory_ifdef(CONFIG_APP_POWER src/modules/power)
 add_subdirectory_ifdef(CONFIG_APP_ENVIRONMENTAL src/modules/environmental)
 add_subdirectory_ifdef(CONFIG_APP_LED src/modules/led)
 add_subdirectory_ifdef(CONFIG_APP_LOCATION src/modules/location)
-add_subdirectory_ifdef(CONFIG_APP_CLOUD src/modules/cloud)
-add_subdirectory_ifdef(CONFIG_APP_FOTA src/modules/fota)
-add_subdirectory_ifdef(CONFIG_APP_STORAGE src/modules/storage)
-add_subdirectory_ifdef(CONFIG_APP_UART_POWER_CONTROL src/modules/uart_power_control)
+add_subdirectory_ifdef(CONFIG_APP_CLOUD_POST src/modules/cloud_post)

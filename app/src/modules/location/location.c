@@ -205,24 +205,6 @@ static void cloud_request_send(const struct location_data_cloud *cloud_request)
 }
 #endif /* defined(CONFIG_LOCATION_METHOD_WIFI) || defined(CONFIG_LOCATION_METHOD_CELLULAR) */
 
-#if defined(CONFIG_NRF_CLOUD_AGNSS)
-static void agnss_request_send(const struct nrf_modem_gnss_agnss_data_frame *agnss_request)
-{
-	int err;
-	struct location_msg location_msg = {
-		.type = LOCATION_AGNSS_REQUEST,
-		.agnss_request = *agnss_request
-	};
-
-	err = zbus_chan_pub(&location_chan, &location_msg, PUB_TIMEOUT);
-	if (err) {
-		LOG_ERR("zbus_chan_pub, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
-}
-#endif /* defined(CONFIG_NRF_CLOUD_AGNSS) */
-
 static void gnss_location_send(const struct location_data *location_data)
 {
 	int err;
@@ -530,12 +512,6 @@ static void location_event_handler(const struct location_event_data *event_data)
 		message_send(LOCATION_SEARCH_CANCEL);
 		break;
 #endif /* CONFIG_LOCATION_METHOD_WIFI || CONFIG_LOCATION_METHOD_CELLULAR */
-#if defined(CONFIG_NRF_CLOUD_AGNSS)
-	case LOCATION_EVT_GNSS_ASSISTANCE_REQUEST:
-		LOG_DBG("A-GNSS assistance request received from location library");
-		agnss_request_send(&event_data->agnss_request);
-		break;
-#endif /* CONFIG_NRF_CLOUD_AGNSS */
 	case LOCATION_EVT_RESULT_UNKNOWN:
 		LOG_DBG("Location result unknown");
 		message_send(LOCATION_SEARCH_DONE);

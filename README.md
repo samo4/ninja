@@ -57,10 +57,13 @@ west update
 # Build for your target
 cd app
 
-west build -b thingy91/nrf9160/ns --pristine
+# Build, flash, and verify — default runs all three:
+./run.sh
 
-# flash the merged TF-M + application image
-west flash --erase --no-rebuild --hex-file build/app/zephyr/tfm_merged.hex
+# Or run steps individually:
+./run.sh build     # compile only
+./run.sh flash     # flash only (skips build)
+./run.sh check     # check for HardFault via J-Link
 
 
 # see console
