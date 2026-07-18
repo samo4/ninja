@@ -4,34 +4,27 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include <date_time.h>
+#include <modem/nrf_modem_lib.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/zbus/zbus.h>
-#include <modem/nrf_modem_lib.h>
-#include <zephyr/task_wdt/task_wdt.h>
-#include <date_time.h>
 #include <zephyr/smf.h>
+#include <zephyr/task_wdt/task_wdt.h>
+#include <zephyr/zbus/zbus.h>
 
+#include "app_common.h"
 #include "modem/lte_lc.h"
 #include "modem/modem_info.h"
-#include "app_common.h"
 #include "network.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(network, CONFIG_APP_NETWORK_LOG_LEVEL);
 
-BUILD_ASSERT(CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS >
-	     CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS,
-	     "Watchdog timeout must be greater than maximum message processing time");
+BUILD_ASSERT(CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS > CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS,
+             "Watchdog timeout must be greater than maximum message processing time");
 
 /* Define channels provided by this module */
-ZBUS_CHAN_DEFINE(network_chan,
-		 struct network_msg,
-		 NULL,
-		 NULL,
-		 ZBUS_OBSERVERS_EMPTY,
-		 ZBUS_MSG_INIT(0)
-);
+ZBUS_CHAN_DEFINE(network_chan, struct network_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY, ZBUS_MSG_INIT(0));
 
 /* Register subscriber */
 ZBUS_MSG_SUBSCRIBER_DEFINE(network);
@@ -46,35 +39,35 @@ ZBUS_CHAN_ADD_OBS(network_chan, network, 0);
 /* Network module states.
  */
 enum network_module_state {
-	/* The module is running */
-	STATE_RUNNING,
-		/* The device is not connected to a network */
-		STATE_DISCONNECTED,
-			/* The device is disconnected from network and is not searching */
-			STATE_DISCONNECTED_IDLE,
-			/* The device is disconnected and the modem is searching for networks */
-			STATE_DISCONNECTED_SEARCHING,
-		/* The device is connected to a network */
-		STATE_CONNECTED,
+    /* The module is running */
+    STATE_RUNNING,
+    /* The device is not connected to a network */
+    STATE_DISCONNECTED,
+    /* The device is disconnected from network and is not searching */
+    STATE_DISCONNECTED_IDLE,
+    /* The device is disconnected and the modem is searching for networks */
+    STATE_DISCONNECTED_SEARCHING,
+    /* The device is connected to a network */
+    STATE_CONNECTED,
 
-		/* The device has initiated detachment from network, but the modem has not confirmed
-		 * detachment yet.
-		 */
-		STATE_DISCONNECTING,
+    /* The device has initiated detachment from network, but the modem has not confirmed
+     * detachment yet.
+     */
+    STATE_DISCONNECTING,
 };
 
 /* State object.
  * Used to transfer context data between state changes.
  */
 struct network_state_object {
-	/* This must be first */
-	struct smf_ctx ctx;
+    /* This must be first */
+    struct smf_ctx ctx;
 
-	/* Last channel type that a message was received on */
-	const struct zbus_channel *chan;
+    /* Last channel type that a message was received on */
+    const struct zbus_channel *chan;
 
-	/* Buffer for last ZBus message */
-	uint8_t msg_buf[MAX_MSG_SIZE];
+    /* Buffer for last ZBus message */
+    uint8_t msg_buf[MAX_MSG_SIZE];
 };
 
 /* Forward declarations of state handlers */
@@ -92,487 +85,472 @@ static void state_connected_entry(void *obj);
 
 /* State machine definition */
 static const struct smf_state states[] = {
-	[STATE_RUNNING] =
-		SMF_CREATE_STATE(state_running_entry, state_running_run, NULL,
-				 NULL,	/* No parent state */
-				 &states[STATE_DISCONNECTED]),
+    [STATE_RUNNING] = SMF_CREATE_STATE(state_running_entry, state_running_run, NULL, NULL, /* No parent state */
+                                       &states[STATE_DISCONNECTED]),
 #if defined(CONFIG_APP_NETWORK_SEARCH_NETWORK_ON_STARTUP)
-	[STATE_DISCONNECTED] =
-		SMF_CREATE_STATE(state_disconnected_entry, state_disconnected_run, NULL,
-				 &states[STATE_RUNNING],
-				 &states[STATE_DISCONNECTED_SEARCHING]),
+    [STATE_DISCONNECTED] = SMF_CREATE_STATE(state_disconnected_entry, state_disconnected_run, NULL,
+                                            &states[STATE_RUNNING], &states[STATE_DISCONNECTED_SEARCHING]),
 #else
-	[STATE_DISCONNECTED] =
-		SMF_CREATE_STATE(state_disconnected_entry, state_disconnected_run, NULL,
-				 &states[STATE_RUNNING],
-				 &states[STATE_DISCONNECTED_IDLE]),
+    [STATE_DISCONNECTED] = SMF_CREATE_STATE(state_disconnected_entry, state_disconnected_run, NULL,
+                                            &states[STATE_RUNNING], &states[STATE_DISCONNECTED_IDLE]),
 #endif /* CONFIG_APP_NETWORK_SEARCH_NETWORK_ON_STARTUP */
-	[STATE_DISCONNECTED_IDLE] =
-		SMF_CREATE_STATE(NULL, state_disconnected_idle_run, NULL,
-				 &states[STATE_DISCONNECTED],
-				 NULL), /* No initial transition */
-	[STATE_DISCONNECTED_SEARCHING] =
-		SMF_CREATE_STATE(state_disconnected_searching_entry,
-				 state_disconnected_searching_run, NULL,
-				 &states[STATE_DISCONNECTED],
-				 NULL), /* No initial transition */
-	[STATE_CONNECTED] =
-		SMF_CREATE_STATE(state_connected_entry, state_connected_run, NULL,
-				 &states[STATE_RUNNING],
-				 NULL), /* No initial transition */
-	[STATE_DISCONNECTING] =
-		SMF_CREATE_STATE(state_disconnecting_entry, state_disconnecting_run, NULL,
-				 &states[STATE_RUNNING],
-				 NULL), /* No initial transition */
+    [STATE_DISCONNECTED_IDLE] = SMF_CREATE_STATE(NULL, state_disconnected_idle_run, NULL, &states[STATE_DISCONNECTED],
+                                                 NULL), /* No initial transition */
+    [STATE_DISCONNECTED_SEARCHING] =
+        SMF_CREATE_STATE(state_disconnected_searching_entry, state_disconnected_searching_run, NULL,
+                         &states[STATE_DISCONNECTED], NULL), /* No initial transition */
+    [STATE_CONNECTED] = SMF_CREATE_STATE(state_connected_entry, state_connected_run, NULL, &states[STATE_RUNNING],
+                                         NULL), /* No initial transition */
+    [STATE_DISCONNECTING] = SMF_CREATE_STATE(state_disconnecting_entry, state_disconnecting_run, NULL,
+                                             &states[STATE_RUNNING], NULL), /* No initial transition */
 };
 
-static void network_status_notify(enum network_msg_type status)
-{
-	int err;
-	struct network_msg msg = {
-		.type = status,
-	};
+static void network_status_notify(enum network_msg_type status) {
+    int err;
+    struct network_msg msg = {
+        .type = status,
+    };
 
-	err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
-	if (err) {
-		LOG_ERR("zbus_chan_pub, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
+    err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("zbus_chan_pub, error: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
 }
 
-static void network_msg_send(const struct network_msg *msg)
-{
-	int err;
+static void network_msg_send(const struct network_msg *msg) {
+    int err;
 
-	err = zbus_chan_pub(&network_chan, msg, PUB_TIMEOUT);
-	if (err) {
-		LOG_ERR("zbus_chan_pub, error: %d", err);
-		SEND_FATAL_ERROR();
-	}
+    err = zbus_chan_pub(&network_chan, msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("zbus_chan_pub, error: %d", err);
+        SEND_FATAL_ERROR();
+    }
 }
 
-static void lte_lc_evt_handler(const struct lte_lc_evt *const evt)
-{
-	switch (evt->type) {
-	case LTE_LC_EVT_NW_REG_STATUS:
-		if (evt->nw_reg_status == LTE_LC_NW_REG_UICC_FAIL) {
-			LOG_ERR("No SIM card detected!");
-			network_status_notify(NETWORK_UICC_FAILURE);
-		} else if (evt->nw_reg_status == LTE_LC_NW_REG_NOT_REGISTERED) {
-			LOG_WRN("Not registered, check rejection cause");
-			network_status_notify(NETWORK_ATTACH_REJECTED);
-		}
+static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
+    switch (evt->type) {
+        case LTE_LC_EVT_NW_REG_STATUS:
 
-		break;
-	case LTE_LC_EVT_PDN:
-		switch (evt->pdn.type) {
-		case LTE_LC_EVT_PDN_ACTIVATED:
-			LOG_DBG("PDN connection activated");
-			network_status_notify(NETWORK_CONNECTED);
+            if (evt->nw_reg_status == LTE_LC_NW_REG_UICC_FAIL) {
+                LOG_ERR("No SIM card detected!");
+                network_status_notify(NETWORK_UICC_FAILURE);
+            } else if (evt->nw_reg_status == LTE_LC_NW_REG_NOT_REGISTERED) {
+                LOG_WRN("Not registered, check rejection cause");
+                network_status_notify(NETWORK_ATTACH_REJECTED);
+            } else if (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING) {
+                LOG_INF("NW reg status: %d (roaming)", evt->nw_reg_status);
+            } else if (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME) {
+                LOG_INF("NW reg status: %d (home)", evt->nw_reg_status);
+            } else if (evt->nw_reg_status == LTE_LC_NW_REG_SEARCHING) {
+                LOG_INF("NW reg status: %d (searching)", evt->nw_reg_status);
+            } else {
+                LOG_INF("NW reg status: %d", evt->nw_reg_status);
+            }
 
-			break;
-		case LTE_LC_EVT_PDN_DEACTIVATED:
-			LOG_DBG("PDN connection deactivated");
-			network_status_notify(NETWORK_DISCONNECTED);
+            break;
+        case LTE_LC_EVT_PDN:
+            switch (evt->pdn.type) {
+                case LTE_LC_EVT_PDN_ACTIVATED:
+                    LOG_DBG("PDN connection activated");
+                    network_status_notify(NETWORK_CONNECTED);
 
-			break;
-		case LTE_LC_EVT_PDN_NETWORK_DETACH:
-			LOG_DBG("PDN connection network detached");
-			network_status_notify(NETWORK_DISCONNECTED);
+                    break;
+                case LTE_LC_EVT_PDN_DEACTIVATED:
+                    LOG_DBG("PDN connection deactivated");
+                    network_status_notify(NETWORK_DISCONNECTED);
 
-			break;
-		case LTE_LC_EVT_PDN_SUSPENDED:
-			LOG_DBG("PDN connection suspended");
-			network_status_notify(NETWORK_DISCONNECTED);
+                    break;
+                case LTE_LC_EVT_PDN_NETWORK_DETACH:
+                    LOG_DBG("PDN connection network detached");
+                    network_status_notify(NETWORK_DISCONNECTED);
 
-			break;
-		case LTE_LC_EVT_PDN_RESUMED:
-			LOG_DBG("PDN connection resumed");
-			network_status_notify(NETWORK_CONNECTED);
+                    break;
+                case LTE_LC_EVT_PDN_SUSPENDED:
+                    LOG_DBG("PDN connection suspended");
+                    network_status_notify(NETWORK_DISCONNECTED);
 
-			break;
-		default:
-			break;
-		}
+                    break;
+                case LTE_LC_EVT_PDN_RESUMED:
+                    LOG_DBG("PDN connection resumed");
+                    network_status_notify(NETWORK_CONNECTED);
 
-		break;
-	case LTE_LC_EVT_MODEM_EVENT:
-		/* If a reset loop happens in the field, it should not be necessary
-		 * to perform any action. The modem will try to re-attach to the LTE network after
-		 * the 30-minute block.
-		 */
-		if (evt->modem_evt.type == LTE_LC_MODEM_EVT_RESET_LOOP) {
-			LOG_WRN("The modem has detected a reset loop!");
-			network_status_notify(NETWORK_MODEM_RESET_LOOP);
-		} else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE) {
-			LOG_DBG("LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE");
-			network_status_notify(NETWORK_LIGHT_SEARCH_DONE);
-		} else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_SEARCH_DONE) {
-			LOG_DBG("LTE_LC_MODEM_EVT_SEARCH_DONE");
-			network_status_notify(NETWORK_SEARCH_DONE);
-		}
+                    break;
+                default:
+                    break;
+            }
 
-		break;
-	case LTE_LC_EVT_PSM_UPDATE: {
-		struct network_msg msg = {
-			.type = NETWORK_PSM_PARAMS,
-			.psm_cfg = evt->psm_cfg,
-		};
+            break;
+        case LTE_LC_EVT_MODEM_EVENT:
+            /* If a reset loop happens in the field, it should not be necessary
+             * to perform any action. The modem will try to re-attach to the LTE network after
+             * the 30-minute block.
+             */
+            if (evt->modem_evt.type == LTE_LC_MODEM_EVT_RESET_LOOP) {
+                LOG_WRN("The modem has detected a reset loop!");
+                network_status_notify(NETWORK_MODEM_RESET_LOOP);
+            } else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE) {
+                LOG_DBG("LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE");
+                network_status_notify(NETWORK_LIGHT_SEARCH_DONE);
+            } else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_SEARCH_DONE) {
+                LOG_DBG("LTE_LC_MODEM_EVT_SEARCH_DONE");
+                network_status_notify(NETWORK_SEARCH_DONE);
+            }
 
-		LOG_DBG("PSM parameters received, TAU: %d, Active time: %d",
-			msg.psm_cfg.tau, msg.psm_cfg.active_time);
+            break;
+        case LTE_LC_EVT_PSM_UPDATE: {
+            struct network_msg msg = {
+                .type = NETWORK_PSM_PARAMS,
+                .psm_cfg = evt->psm_cfg,
+            };
 
-		network_msg_send(&msg);
+            LOG_DBG("PSM parameters received, TAU: %d, Active time: %d", msg.psm_cfg.tau, msg.psm_cfg.active_time);
 
-		break;
-	}
-	case LTE_LC_EVT_EDRX_UPDATE: {
-		struct network_msg msg = {
-			.type = NETWORK_EDRX_PARAMS,
-			.edrx_cfg = evt->edrx_cfg,
-		};
+            network_msg_send(&msg);
 
-		LOG_DBG("eDRX parameters received, mode: %d, eDRX: %0.2f s, PTW: %.02f s",
-			msg.edrx_cfg.mode, (double)msg.edrx_cfg.edrx, (double)msg.edrx_cfg.ptw);
+            break;
+        }
+        case LTE_LC_EVT_EDRX_UPDATE: {
+            struct network_msg msg = {
+                .type = NETWORK_EDRX_PARAMS,
+                .edrx_cfg = evt->edrx_cfg,
+            };
 
-		network_msg_send(&msg);
+            LOG_DBG("eDRX parameters received, mode: %d, eDRX: %0.2f s, PTW: %.02f s", msg.edrx_cfg.mode,
+                    (double)msg.edrx_cfg.edrx, (double)msg.edrx_cfg.ptw);
 
-		break;
-	}
-	default:
-		break;
-	}
+            network_msg_send(&msg);
+
+            break;
+        }
+        case LTE_LC_EVT_LTE_MODE_UPDATE:
+            LOG_INF("LTE mode: %s", evt->lte_mode == 7 ? "LTE-M" : evt->lte_mode == 9 ? "NB-IoT" : "other");
+            break;
+        case LTE_LC_EVT_RRC_UPDATE:
+            LOG_DBG("RRC state: %s", evt->rrc_mode ? "Connected" : "Idle");
+            break;
+        case LTE_LC_EVT_CELL_UPDATE:
+            LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
+            break;
+        case LTE_LC_EVT_MODEM_SLEEP_EXIT:
+            LOG_DBG("Modem sleep exit");
+            break;
+        case LTE_LC_EVT_MODEM_SLEEP_ENTER:
+            LOG_DBG("Modem sleep enter (type %d)", evt->modem_sleep.type);
+            break;
+        default:
+            LOG_DBG("Unhandled LTE event type: %d", evt->type);
+            break;
+    }
 }
 
-static void request_system_mode(void)
-{
-	int err;
-	struct network_msg msg = {
-		.type = NETWORK_SYSTEM_MODE_RESPONSE,
-	};
-	enum lte_lc_system_mode_preference dummy_preference;
+static void request_system_mode(void) {
+    int err;
+    struct network_msg msg = {
+        .type = NETWORK_SYSTEM_MODE_RESPONSE,
+    };
+    enum lte_lc_system_mode_preference dummy_preference;
 
-	err = lte_lc_system_mode_get(&msg.system_mode, &dummy_preference);
-	if (err) {
-		LOG_ERR("lte_lc_system_mode_get, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
+    err = lte_lc_system_mode_get(&msg.system_mode, &dummy_preference);
+    if (err) {
+        LOG_ERR("lte_lc_system_mode_get, error: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
 
-	network_msg_send(&msg);
+    network_msg_send(&msg);
 }
 
-static int network_disconnect(void)
-{
-	int err;
+static int network_disconnect(void) {
+    int err;
 
-	err = lte_lc_offline();
-	if (err) {
-		LOG_ERR("lte_lc_offline, error: %d", err);
+    err = lte_lc_offline();
+    if (err) {
+        LOG_ERR("lte_lc_offline, error: %d", err);
 
-		return err;
-	}
+        return err;
+    }
 
-	return 0;
+    return 0;
 }
 
 /* State handlers */
 
-static void state_running_entry(void *obj)
-{
-	int err;
+static void state_running_entry(void *obj) {
+    int err;
 
-	ARG_UNUSED(obj);
+    ARG_UNUSED(obj);
 
-	LOG_DBG("state_running_entry");
+    LOG_DBG("state_running_entry");
 
-	err = nrf_modem_lib_init();
-	if (err) {
-		LOG_ERR("Failed to initialize the modem library, error: %d", err);
-		SEND_FATAL_ERROR();
+    err = nrf_modem_lib_init();
+    if (err) {
+        LOG_ERR("Failed to initialize the modem library, error: %d", err);
+        SEND_FATAL_ERROR();
 
-		return;
-	}
+        return;
+    }
 
-	lte_lc_register_handler(lte_lc_evt_handler);
+    lte_lc_register_handler(lte_lc_evt_handler);
 
-	/* Register handler for default PDP context. */
-	err = lte_lc_pdn_default_ctx_events_enable();
-	if (err) {
-		LOG_ERR("lte_lc_pdn_default_ctx_events_enable, error: %d", err);
-		SEND_FATAL_ERROR();
+    /* Register handler for default PDP context. */
+    err = lte_lc_pdn_default_ctx_events_enable();
+    if (err) {
+        LOG_ERR("lte_lc_pdn_default_ctx_events_enable, error: %d", err);
+        SEND_FATAL_ERROR();
 
-		return;
-	}
+        return;
+    }
 
-	LOG_DBG("Network module started");
+    LOG_DBG("Network module started");
 }
 
-static enum smf_state_result state_running_run(void *obj)
-{
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_running_run(void *obj) {
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		switch (msg->type) {
-		case NETWORK_DISCONNECTED:
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED]);
+        switch (msg->type) {
+            case NETWORK_DISCONNECTED:
+                smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED]);
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_UICC_FAILURE:
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
+                return SMF_EVENT_HANDLED;
+            case NETWORK_UICC_FAILURE:
+                smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_SYSTEM_MODE_REQUEST:
-			request_system_mode();
+                return SMF_EVENT_HANDLED;
+            case NETWORK_SYSTEM_MODE_REQUEST:
+                request_system_mode();
 
-			return SMF_EVENT_HANDLED;
-		default:
-			break;
-		}
-	}
+                return SMF_EVENT_HANDLED;
+            default:
+                break;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static void state_disconnected_entry(void *obj)
-{
-	ARG_UNUSED(obj);
+static void state_disconnected_entry(void *obj) {
+    ARG_UNUSED(obj);
 
-	LOG_DBG("state_disconnected_entry");
+    LOG_DBG("state_disconnected_entry");
 }
 
-static enum smf_state_result state_disconnected_run(void *obj)
-{
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_disconnected_run(void *obj) {
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		switch (msg->type) {
-		case NETWORK_CONNECTED:
-			smf_set_state(SMF_CTX(state_object), &states[STATE_CONNECTED]);
+        switch (msg->type) {
+            case NETWORK_CONNECTED:
+                smf_set_state(SMF_CTX(state_object), &states[STATE_CONNECTED]);
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_DISCONNECTED:
-			return SMF_EVENT_HANDLED;
-		default:
-			break;
-		}
-	}
+                return SMF_EVENT_HANDLED;
+            case NETWORK_DISCONNECTED:
+                return SMF_EVENT_HANDLED;
+            default:
+                break;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static void state_disconnected_searching_entry(void *obj)
-{
-	int err;
+static void state_disconnected_searching_entry(void *obj) {
+    int err;
 
-	ARG_UNUSED(obj);
+    ARG_UNUSED(obj);
 
-	LOG_DBG("state_disconnected_searching_entry");
+    LOG_DBG("state_disconnected_searching_entry");
 
-	err = lte_lc_connect_async(lte_lc_evt_handler);
-	if (err) {
-		LOG_ERR("lte_lc_connect_async, error: %d", err);
+    err = lte_lc_connect_async(lte_lc_evt_handler);
+    if (err) {
+        LOG_ERR("lte_lc_connect_async, error: %d", err);
 
-		return;
-	}
+        return;
+    }
 }
 
-static enum smf_state_result state_disconnected_searching_run(void *obj)
-{
-	int err;
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_disconnected_searching_run(void *obj) {
+    int err;
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		switch (msg->type) {
-		case NETWORK_CONNECT:
-			return SMF_EVENT_HANDLED;
-		case NETWORK_SEARCH_STOP: __fallthrough;
-		case NETWORK_DISCONNECT:
-			err = network_disconnect();
-			if (err) {
-				LOG_ERR("network_disconnect, error: %d", err);
-				SEND_FATAL_ERROR();
-			}
+        switch (msg->type) {
+            case NETWORK_CONNECT:
+                return SMF_EVENT_HANDLED;
+            case NETWORK_SEARCH_STOP:
+                __fallthrough;
+            case NETWORK_DISCONNECT:
+                err = network_disconnect();
+                if (err) {
+                    LOG_ERR("network_disconnect, error: %d", err);
+                    SEND_FATAL_ERROR();
+                }
 
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
-			return SMF_EVENT_HANDLED;
-		default:
-			break;
-		}
-	}
+                smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
+                return SMF_EVENT_HANDLED;
+            default:
+                break;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static enum smf_state_result state_disconnected_idle_run(void *obj)
-{
-	int err;
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_disconnected_idle_run(void *obj) {
+    int err;
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		switch (msg->type) {
-		case NETWORK_DISCONNECT:
-			return SMF_EVENT_HANDLED;
-		case NETWORK_CONNECT:
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_SEARCHING]);
+        switch (msg->type) {
+            case NETWORK_DISCONNECT:
+                return SMF_EVENT_HANDLED;
+            case NETWORK_CONNECT:
+                smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_SEARCHING]);
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_SYSTEM_MODE_SET_LTEM:
-			err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_LTEM_GPS,
-						     LTE_LC_SYSTEM_MODE_PREFER_AUTO);
-			if (err) {
-				LOG_ERR("lte_lc_system_mode_set, error: %d", err);
-				SEND_FATAL_ERROR();
-			}
+                return SMF_EVENT_HANDLED;
+            case NETWORK_SYSTEM_MODE_SET_LTEM:
+                err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_LTEM_GPS, LTE_LC_SYSTEM_MODE_PREFER_AUTO);
+                if (err) {
+                    LOG_ERR("lte_lc_system_mode_set, error: %d", err);
+                    SEND_FATAL_ERROR();
+                }
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_SYSTEM_MODE_SET_NBIOT:
-			err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_NBIOT_GPS,
-						     LTE_LC_SYSTEM_MODE_PREFER_AUTO);
-			if (err) {
-				LOG_ERR("lte_lc_system_mode_set, error: %d", err);
-				SEND_FATAL_ERROR();
-			}
+                return SMF_EVENT_HANDLED;
+            case NETWORK_SYSTEM_MODE_SET_NBIOT:
+                err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_NBIOT_GPS, LTE_LC_SYSTEM_MODE_PREFER_AUTO);
+                if (err) {
+                    LOG_ERR("lte_lc_system_mode_set, error: %d", err);
+                    SEND_FATAL_ERROR();
+                }
 
-			return SMF_EVENT_HANDLED;
-		case NETWORK_SYSTEM_MODE_SET_LTEM_NBIOT:
-			err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS,
-						     LTE_LC_SYSTEM_MODE_PREFER_AUTO);
-			if (err) {
-				LOG_ERR("lte_lc_system_mode_set, error: %d", err);
-				SEND_FATAL_ERROR();
-			}
+                return SMF_EVENT_HANDLED;
+            case NETWORK_SYSTEM_MODE_SET_LTEM_NBIOT:
+                err = lte_lc_system_mode_set(LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS, LTE_LC_SYSTEM_MODE_PREFER_AUTO);
+                if (err) {
+                    LOG_ERR("lte_lc_system_mode_set, error: %d", err);
+                    SEND_FATAL_ERROR();
+                }
 
-			return SMF_EVENT_HANDLED;
-		default:
-			break;
-		}
-	}
+                return SMF_EVENT_HANDLED;
+            default:
+                break;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static void state_connected_entry(void *obj)
-{
-	ARG_UNUSED(obj);
+static void state_connected_entry(void *obj) {
+    ARG_UNUSED(obj);
 
-	LOG_DBG("state_connected_entry");
+    LOG_DBG("state_connected_entry");
 }
 
-static enum smf_state_result state_connected_run(void *obj)
-{
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_connected_run(void *obj) {
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		if (msg->type == NETWORK_DISCONNECT) {
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTING]);
+        if (msg->type == NETWORK_DISCONNECT) {
+            smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTING]);
 
-			return SMF_EVENT_HANDLED;
-		}
-	}
+            return SMF_EVENT_HANDLED;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static void state_disconnecting_entry(void *obj)
-{
-	int err;
+static void state_disconnecting_entry(void *obj) {
+    int err;
 
-	ARG_UNUSED(obj);
+    ARG_UNUSED(obj);
 
-	LOG_DBG("state_disconnecting_entry");
+    LOG_DBG("state_disconnecting_entry");
 
-	err = network_disconnect();
-	if (err) {
-		LOG_ERR("network_disconnect, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
+    err = network_disconnect();
+    if (err) {
+        LOG_ERR("network_disconnect, error: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
 }
 
-static enum smf_state_result state_disconnecting_run(void *obj)
-{
-	struct network_state_object const *state_object = obj;
+static enum smf_state_result state_disconnecting_run(void *obj) {
+    struct network_state_object const *state_object = obj;
 
-	if (&network_chan == state_object->chan) {
-		const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
+    if (&network_chan == state_object->chan) {
+        const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
 
-		if (msg->type == NETWORK_DISCONNECTED) {
-			smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
+        if (msg->type == NETWORK_DISCONNECTED) {
+            smf_set_state(SMF_CTX(state_object), &states[STATE_DISCONNECTED_IDLE]);
 
-			return SMF_EVENT_HANDLED;
-		}
-	}
+            return SMF_EVENT_HANDLED;
+        }
+    }
 
-	return SMF_EVENT_PROPAGATE;
+    return SMF_EVENT_PROPAGATE;
 }
 
-static void network_wdt_callback(int channel_id, void *user_data)
-{
-	LOG_ERR("Network watchdog expired, Channel: %d, Thread: %s",
-		channel_id, k_thread_name_get((k_tid_t)user_data));
+static void network_wdt_callback(int channel_id, void *user_data) {
+    LOG_ERR("Network watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
 
-	SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
+    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
 }
 
-static void network_module_thread(void)
-{
-	int err;
-	int task_wdt_id;
-	const uint32_t wdt_timeout_ms =
-		(CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC);
-	const uint32_t execution_time_ms =
-		(CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
-	const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
-	static struct network_state_object network_state;
+static void network_module_thread(void) {
+    int err;
+    int task_wdt_id;
+    const uint32_t wdt_timeout_ms = (CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC);
+    const uint32_t execution_time_ms = (CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
+    const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
+    static struct network_state_object network_state;
 
-	task_wdt_id = task_wdt_add(wdt_timeout_ms, network_wdt_callback, (void *)k_current_get());
-	if (task_wdt_id < 0) {
-		LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-		SEND_FATAL_ERROR();
-		return;
-	}
+    task_wdt_id = task_wdt_add(wdt_timeout_ms, network_wdt_callback, (void *)k_current_get());
+    if (task_wdt_id < 0) {
+        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
+        SEND_FATAL_ERROR();
+        return;
+    }
 
-	smf_set_initial(SMF_CTX(&network_state), &states[STATE_RUNNING]);
+    smf_set_initial(SMF_CTX(&network_state), &states[STATE_RUNNING]);
 
-	while (true) {
-		err = task_wdt_feed(task_wdt_id);
-		if (err) {
-			LOG_ERR("task_wdt_feed, error: %d", err);
-			SEND_FATAL_ERROR();
-			return;
-		}
+    while (true) {
+        err = task_wdt_feed(task_wdt_id);
+        if (err) {
+            LOG_ERR("task_wdt_feed, error: %d", err);
+            SEND_FATAL_ERROR();
+            return;
+        }
 
-		err = zbus_sub_wait_msg(&network, &network_state.chan,
-					network_state.msg_buf, zbus_wait_ms);
-		if (err == -ENOMSG) {
-			continue;
-		} else if (err) {
-			LOG_ERR("zbus_sub_wait_msg, error: %d", err);
-			SEND_FATAL_ERROR();
-			return;
-		}
+        err = zbus_sub_wait_msg(&network, &network_state.chan, network_state.msg_buf, zbus_wait_ms);
+        if (err == -ENOMSG) {
+            continue;
+        } else if (err) {
+            LOG_ERR("zbus_sub_wait_msg, error: %d", err);
+            SEND_FATAL_ERROR();
+            return;
+        }
 
-		err = smf_run_state(SMF_CTX(&network_state));
-		if (err) {
-			LOG_ERR("smf_run_state(), error: %d", err);
-			SEND_FATAL_ERROR();
-			return;
-		}
-	}
+        err = smf_run_state(SMF_CTX(&network_state));
+        if (err) {
+            LOG_ERR("smf_run_state(), error: %d", err);
+            SEND_FATAL_ERROR();
+            return;
+        }
+    }
 }
 
-K_THREAD_DEFINE(network_module_thread_id,
-		CONFIG_APP_NETWORK_THREAD_STACK_SIZE,
-		network_module_thread, NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+K_THREAD_DEFINE(network_module_thread_id, CONFIG_APP_NETWORK_THREAD_STACK_SIZE, network_module_thread, NULL, NULL, NULL,
+                K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);

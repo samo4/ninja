@@ -332,7 +332,7 @@ static enum smf_state_result running_run(void *o) {
 static void sampling_entry(void *o) {
     struct main_state *state_object = (struct main_state *)o;
 
-    LOG_INF("Alive — sampling every %us)", state_object->sample_interval_sec);
+    LOG_INF("trigger_sampling: %us", state_object->sample_interval_sec);
     trigger_sampling(state_object);
 }
 

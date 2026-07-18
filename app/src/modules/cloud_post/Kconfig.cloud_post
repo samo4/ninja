@@ -27,6 +27,12 @@ config APP_CLOUD_POST_PORT
 	help
 	  Port of the REST API endpoint.
 
+config APP_CLOUD_POST_URL
+	string "API URL path"
+	default "/api/Ninja"
+	help
+	  URL path of the REST API endpoint.
+
 config APP_CLOUD_POST_SEC_TAG
 	int "TLS security tag"
 	default 168448
