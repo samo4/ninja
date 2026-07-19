@@ -42,7 +42,6 @@ static void mod_reset_samples(void) { mod.env_received = false; }
 static void mod_request_connect(void) {
     const struct network_msg msg = {.type = NETWORK_CONNECT};
     if (mod.connect_requested) {
-        LOG_DBG("LTE connect already requested, waiting for NETWORK_CONNECTED");
         return;
     }
 

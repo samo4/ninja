@@ -65,19 +65,19 @@ static void timer_arm(uint32_t delay_sec) {
 
 #define HEARTBEAT_INTERVAL_SEC 60
 
+static const char *lp_state_name;
+
 static void heartbeat_fn(struct k_work *work);
 
 static K_WORK_DELAYABLE_DEFINE(heartbeat_work, heartbeat_fn);
 
 static void heartbeat_fn(struct k_work *work) {
     ARG_UNUSED(work);
-    LOG_INF("♥");
+    LOG_INF("♥ %s", lp_state_name);
     k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC));
 }
 
 static void heartbeat_start(void) { k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC)); }
-
-static void heartbeat_stop(void) { k_work_cancel_delayable(&heartbeat_work); }
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
@@ -129,8 +129,10 @@ static const struct smf_state states[] = {
 
 static void sampling_entry(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
+    lp_state_name = "sampling";
     LOG_INF("LP: sampling (cycle every %us)", state->sample_interval_sec);
     fire_sample(state);
+    lp_state_name = "waiting";
     smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_WAITING]);
 }
 
@@ -167,6 +169,7 @@ static enum smf_state_result waiting_run(void *o) {
 
 static void disconnecting_entry(void *o) {
     ARG_UNUSED(o);
+    lp_state_name = "disconnecting";
     LOG_DBG("%s", __func__);
 }
 
@@ -185,16 +188,15 @@ static enum smf_state_result disconnecting_run(void *o) {
 
 static void sleeping_entry(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
+    lp_state_name = "sleeping";
     LOG_DBG("%s", __func__);
     LOG_INF("LP: sleeping with modem off for %us — measure power now", state->sample_interval_sec);
-    heartbeat_start();
     timer_arm(state->sample_interval_sec);
 }
 
 static enum smf_state_result sleeping_run(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
     if (state->chan == &timer_chan) {
-        heartbeat_stop();
         LOG_INF("LP: sleep expired, starting new cycle");
         smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_SAMPLING]);
         return SMF_EVENT_HANDLED;
@@ -204,6 +206,7 @@ static enum smf_state_result sleeping_run(void *o) {
 
 static void rebooting_entry(void *o) {
     ARG_UNUSED(o);
+    lp_state_name = "rebooting";
     LOG_DBG("%s", __func__);
     LOG_PANIC();
     k_sleep(K_SECONDS(10));
@@ -214,6 +217,8 @@ static void rebooting_entry(void *o) {
 
 void low_power_init(struct low_power_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
+    lp_state_name = "init";
+    heartbeat_start();
     smf_set_initial(SMF_CTX(state), &states[LOW_POWER_STATE_SAMPLING]);
 }
 
