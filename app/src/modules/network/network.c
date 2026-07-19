@@ -233,12 +233,12 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_CELL_UPDATE:
             LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
             break;
-        case LTE_LC_EVT_MODEM_SLEEP_EXIT:
+        /*case LTE_LC_EVT_MODEM_SLEEP_EXIT:
             LOG_DBG("Modem sleep exit");
             break;
         case LTE_LC_EVT_MODEM_SLEEP_ENTER:
             LOG_DBG("Modem sleep enter (type %d)", evt->modem_sleep.type);
-            break;
+            break;*/
         default:
             LOG_DBG("Unhandled LTE event type: %d", evt->type);
             break;
