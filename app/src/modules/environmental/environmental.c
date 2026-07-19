@@ -62,44 +62,88 @@ static const struct smf_state states[] = {
     [STATE_RUNNING] = SMF_CREATE_STATE(NULL, state_running_run, NULL, NULL, NULL),
 };
 
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+#define LIS2DTW12_SPI_READ (1 << 7)
+#define LIS2DTW12_REG_WHO_AM_I 0x0F
+#define LIS2DTW12_ID_VALUE 0x44
+
+/* Read len bytes starting at reg using the proven dual-buffer SPI pattern */
+static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, uint8_t reg, uint8_t *data, uint16_t len) {
+    uint8_t tx_buf[2] = {reg | LIS2DTW12_SPI_READ, 0};
+    const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 2};
+    const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
+    /*
+     * RX uses 2 buffers:
+     *   buf[0] = {NULL, 1} — discards the dummy byte received during address phase
+     *   buf[1] = {data, len} — receives the actual register data
+     */
+    const struct spi_buf rx_buf[2] = {
+        {.buf = NULL, .len = 1},
+        {.buf = data, .len = len},
+    };
+    const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
+
+    if (spi_transceive(spi->bus, &spi->config, &tx, &rx)) {
+        return -EIO;
+    }
+    return 0;
+}
+
 static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
-    uint8_t tx_buf[3] = {0x0D | 0x80, 0x00, 0x00};
-    uint8_t rx_buf[3] = {0};
+    // 0x0D is OUT_T_L. Bit 7 (0x80) is the SPI Read command flag.
+    uint8_t temp_bytes[2];
     int err;
 
-    const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 3};
-    const struct spi_buf rx_bufs = {.buf = rx_buf, .len = 3};
-    const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
-    const struct spi_buf_set rx = {.buffers = &rx_bufs, .count = 1};
-
-    err = spi_transceive(spi->bus, &spi->config, &tx, &rx);
+    err = lis2dtw12_spi_read(spi, 0x0D, temp_bytes, 2);
     if (err) {
-        LOG_ERR("LIS2DTW12 SPI read failed: %d", err);
+        LOG_ERR("LIS2DTW12 temperature SPI read failed: %d", err);
         return -1.0;
     }
 
-    /* rx_buf[0] dummy, rx_buf[1] = OUT_T_L, rx_buf[2] = OUT_T_H */
-    int16_t raw = (int16_t)((rx_buf[2] << 8) | rx_buf[1]);
+    /* temp_bytes[0] = OUT_T_L (lower nibble @ bits [3:0], bits [7:4] reserved) */
+    /* temp_bytes[1] = OUT_T_H (upper 8 bits of 12-bit temp) */
 
-    /* Conversion: temp_C = (raw / 256.0) + 25.0 */
-    return ((double)raw / 256.0) + 25.0;
+    // Combine: (OUT_T_H << 4) | (OUT_T_L & 0x0F) — mask to lower nibble only
+    uint16_t raw = ((uint16_t)temp_bytes[1] << 4) | (temp_bytes[0] & 0x0F);
+
+    // Sign-extend 12-bit two's complement to 16-bit via left-shift + arithmetic right-shift
+    int16_t raw_12bit = (int16_t)(raw << 4) >> 4;
+
+    /* Sensitivity scale: 0.0625 °C/LSB (which is exactly 1.0 / 16.0) */
+    /* Center offset: 0 LSB = 25.0 °C */
+    return ((double)raw_12bit / 16.0) + 25.0;
 }
-#endif
+
+bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi) {
+    uint8_t chip_id;
+    int err;
+
+    err = lis2dtw12_spi_read(spi, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
+    if (err) {
+        LOG_ERR("SPI communication failed entirely: %d", err);
+        return false;
+    }
+
+    if (chip_id == LIS2DTW12_ID_VALUE) {
+        LOG_INF("Verification Success! Found LIS2DTW12 (ID: 0x%02X)", chip_id);
+        return true;
+    } else {
+        LOG_WRN("Verification Failed! Expected 0x44, but received: 0x%02X", chip_id);
+        return false;
+    }
+}
 
 static void sample_sensors(struct environmental_state_object *state) {
     int err;
-#if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    struct sensor_value temp = {0};
-#endif
-
+    double temperature;
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    double temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi);
+    verify_lis2dtw12_identity(&state->lis2dtw12_spi);
+    temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi);
     if (temperature < -40.0) {
         SEND_FATAL_ERROR();
         return;
     }
 #else
+    struct sensor_value temp = {0};
     err = sensor_sample_fetch(state->bme680);
     if (err) {
         LOG_ERR("sensor_sample_fetch, error: %d", err);
@@ -113,15 +157,12 @@ static void sample_sensors(struct environmental_state_object *state) {
         SEND_FATAL_ERROR();
         return;
     }
+    temperature = sensor_value_to_double(&temp);
 #endif
 
     struct environmental_msg msg = {
         .type = ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE,
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
         .temperature = temperature,
-#else
-        .temperature = sensor_value_to_double(&temp),
-#endif
         .timestamp = k_uptime_get(),
     };
 
