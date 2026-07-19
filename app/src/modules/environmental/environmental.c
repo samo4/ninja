@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
@@ -47,6 +48,7 @@ struct environmental_state_object {
     struct smf_ctx ctx;              // must be first
     const struct zbus_channel *chan; // channel type that a message was received on
     uint8_t msg_buf[MAX_MSG_SIZE];
+    struct gpio_dt_spec lis2dtw12_cs;
 #if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
     const struct device *const bme680;
 #else
@@ -66,8 +68,9 @@ static const struct smf_state states[] = {
 #define LIS2DTW12_REG_WHO_AM_I 0x0F
 #define LIS2DTW12_ID_VALUE 0x44
 
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
 /* Read len bytes starting at reg using the proven dual-buffer SPI pattern */
-static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, uint8_t reg, uint8_t *data, uint16_t len) {
+static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, struct gpio_dt_spec *cs, uint8_t reg, uint8_t *data, uint16_t len) {
     uint8_t tx_buf[2] = {reg | LIS2DTW12_SPI_READ, 0};
     const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 2};
     const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
@@ -82,18 +85,26 @@ static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, uint8_t reg, uint8_
     };
     const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
 
-    if (spi_transceive(spi->bus, &spi->config, &tx, &rx)) {
+    /* Manual CS: drive low before transaction */
+    gpio_pin_set_dt(cs, 1);
+    k_usleep(1);
+    int ret = spi_transceive(spi->bus, &spi->config, &tx, &rx);
+    k_usleep(1);
+    /* Manual CS: drive high after transaction */
+    gpio_pin_set_dt(cs, 0);
+
+    if (ret) {
         return -EIO;
     }
     return 0;
 }
 
-static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
+static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi, struct gpio_dt_spec *cs) {
     // 0x0D is OUT_T_L. Bit 7 (0x80) is the SPI Read command flag.
     uint8_t temp_bytes[2];
     int err;
 
-    err = lis2dtw12_spi_read(spi, 0x0D, temp_bytes, 2);
+    err = lis2dtw12_spi_read(spi, cs, 0x0D, temp_bytes, 2);
     if (err) {
         LOG_ERR("LIS2DTW12 temperature SPI read failed: %d", err);
         return -1.0;
@@ -113,11 +124,21 @@ static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
     return ((double)raw_12bit / 16.0) + 25.0;
 }
 
-bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi) {
+bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi, struct gpio_dt_spec *cs) {
     uint8_t chip_id;
     int err;
 
-    err = lis2dtw12_spi_read(spi, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
+    /*
+     * LIS2DTW12 boots in I2C mode by default and only switches to SPI
+     * after detecting a high-to-low transition on CS.  The first SPI
+     * transaction after asserting CS may return garbage (0xFF) while the
+     * sensor switches.  Perform a dummy read (any register) to complete
+     * the mode switch before checking WHO_AM_I.
+     */
+    uint8_t dummy;
+    (void)lis2dtw12_spi_read(spi, cs, 0x00, &dummy, 1);
+
+    err = lis2dtw12_spi_read(spi, cs, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
     if (err) {
         LOG_ERR("SPI communication failed entirely: %d", err);
         return false;
@@ -131,13 +152,14 @@ bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi) {
         return false;
     }
 }
+#endif
 
 static void sample_sensors(struct environmental_state_object *state) {
     int err;
     double temperature;
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    verify_lis2dtw12_identity(&state->lis2dtw12_spi);
-    temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi);
+    verify_lis2dtw12_identity(&state->lis2dtw12_spi, &state->lis2dtw12_cs);
+    temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi, &state->lis2dtw12_cs);
     if (temperature < -40.0) {
         SEND_FATAL_ERROR();
         return;
@@ -201,6 +223,7 @@ static void env_module_thread(void) {
     const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
     static struct environmental_state_object environmental_state = {
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+        .lis2dtw12_cs = GPIO_DT_SPEC_GET_BY_IDX(DT_NODELABEL(spi2), cs_gpios, 0),
         .lis2dtw12_spi =
             {
                 .bus = DEVICE_DT_GET(DT_NODELABEL(spi2)),
@@ -209,6 +232,8 @@ static void env_module_thread(void) {
                         .frequency = 1000000,
                         .operation = SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA,
                         .slave = 0,
+                        /* Take manual CS control — SPIM won't touch it */
+                        .cs = { .gpio = { .port = NULL }, .delay = 0 },
                     },
             },
 #else
@@ -217,17 +242,20 @@ static void env_module_thread(void) {
     };
 
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    environmental_state.lis2dtw12_spi.config.cs = (struct spi_cs_control){
-        .gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_NODELABEL(spi2), cs_gpios, 0),
-        .delay = 0,
-    };
+    if (!gpio_is_ready_dt(&environmental_state.lis2dtw12_cs)) {
+        LOG_ERR("LIS2DTW12 CS GPIO port not ready");
+        SEND_FATAL_ERROR();
+        return;
+    }
+    /* Configure CS as output, initially high (inactive for active-low CS) */
+    gpio_pin_configure_dt(&environmental_state.lis2dtw12_cs, GPIO_OUTPUT_INACTIVE);
 #endif
 
     LOG_DBG("Environmental module task started");
 
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
     if (!spi_is_ready_dt(&environmental_state.lis2dtw12_spi)) {
-        LOG_ERR("LIS2DTW12 SPI bus or CS not ready");
+        LOG_ERR("LIS2DTW12 SPI bus not ready");
         SEND_FATAL_ERROR();
         return;
     }
