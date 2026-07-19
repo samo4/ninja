@@ -26,10 +26,6 @@
 #include "environmental.h"
 #endif /* CONFIG_APP_ENVIRONMENTAL */
 
-#if defined(CONFIG_APP_POWER)
-#include "power.h"
-#endif /* CONFIG_APP_POWER */
-
 /* Register log module */
 LOG_MODULE_REGISTER(main, 4);
 
@@ -57,8 +53,7 @@ ZBUS_CHAN_DEFINE(timer_chan, struct timer_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
 #define CHANNEL_LIST(X)                                                      \
     X(network_chan, struct network_msg)                                      \
     IF_ENABLED(CONFIG_APP_LOCATION, (X(location_chan, struct location_msg))) \
-    X(timer_chan, struct timer_msg)                                          \
-    IF_ENABLED(CONFIG_APP_POWER, (X(power_chan, struct power_msg)))
+    X(timer_chan, struct timer_msg)
 
 /* Calculate the maximum message size from the list of channels */
 #define MAX_MSG_SIZE MAX_MSG_SIZE_FROM_LIST(CHANNEL_LIST)
@@ -191,20 +186,6 @@ static void trigger_sampling(struct main_state *state_object) {
 
     state_object->sample_start_time = k_uptime_seconds();
     state_object->first_sample_pending = false;
-
-#if defined(CONFIG_APP_POWER)
-    struct power_msg power_msg = {
-        .type = POWER_BATTERY_PERCENTAGE_SAMPLE_REQUEST,
-    };
-
-    err = zbus_chan_pub(&power_chan, &power_msg, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish power battery sample request, error: %d", err);
-        SEND_FATAL_ERROR();
-
-        return;
-    }
-#endif /* CONFIG_APP_POWER */
 
 #if defined(CONFIG_APP_ENVIRONMENTAL)
     struct environmental_msg environmental_msg = {

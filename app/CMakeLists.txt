@@ -16,7 +16,6 @@ target_sources(app PRIVATE src/main.c)
 add_subdirectory(src/modules/network)
 
 # Optional modules
-add_subdirectory_ifdef(CONFIG_APP_POWER src/modules/power)
 add_subdirectory_ifdef(CONFIG_APP_ENVIRONMENTAL src/modules/environmental)
 add_subdirectory_ifdef(CONFIG_APP_LED src/modules/led)
 add_subdirectory_ifdef(CONFIG_APP_LOCATION src/modules/location)

@@ -169,14 +169,6 @@ MODULES = [
         enum_type_name="environmental_module_state"
     ),
     ModuleConfig(
-        name="Power",
-        file_name="power.c",
-        function_name="power_module_thread",
-        variable_name="power_state",
-        states_array_name="states",
-        enum_type_name="power_module_state"
-    ),
-    ModuleConfig(
         name="Storage",
         file_name="storage.c",
         function_name="storage_thread",

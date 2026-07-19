@@ -1,36 +1,22 @@
-# Asset Tracker Template
+# Ninja
 
-[![Release](https://img.shields.io/github/v/release/nrfconnect/Asset-Tracker-Template)](https://github.com/nrfconnect/Asset-Tracker-Template/releases)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=nrfconnect-asset-tracker-template&metric=alert_status)](https://sonarcloud.io/dashboard?id=nrfconnect-asset-tracker-template)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=nrfconnect-asset-tracker-template&metric=coverage)](https://sonarcloud.io/dashboard?id=nrfconnect-asset-tracker-template)
-[![On-commit](https://img.shields.io/github/actions/workflow/status/nrfconnect/Asset-Tracker-Template/build-and-target-test.yml?event=push&branch=main&label=on-commit)](https://github.com/nrfconnect/Asset-Tracker-Template/actions/workflows/build-and-target-test.yml?query=branch%3Amain+event%3Apush)
-[![Nightly](https://img.shields.io/github/actions/workflow/status/nrfconnect/Asset-Tracker-Template/build-and-target-test.yml?event=schedule&branch=main&label=nightly)](https://github.com/nrfconnect/Asset-Tracker-Template/actions/workflows/build-and-target-test.yml?query=branch%3Amain+event%3Aschedule)
-[![PSM Current](https://img.shields.io/endpoint?url=https://nrfconnect.github.io/Asset-Tracker-Template/power_badge.json)](https://nrfconnect.github.io/Asset-Tracker-Template/power_measurements_plot.html)
-[![RAM Usage thingy91x](https://img.shields.io/endpoint?url=https://nrfconnect.github.io/Asset-Tracker-Template/ram_badge.json)](https://nrfconnect.github.io/Asset-Tracker-Template/ram_memory_view.html)
-[![FLASH Usage thingy91x](https://img.shields.io/endpoint?url=https://nrfconnect.github.io/Asset-Tracker-Template/flash_badge.json)](https://nrfconnect.github.io/Asset-Tracker-Template/flash_memory_view.html)
+Originals:
 
-## Overview
+https://github.com/samo4/shadowguard
+https://github.com/samo4/shadow_playground
+https://github.com/samo4/ShadowGuardGNSS
 
-The Asset Tracker Template is a modular framework for developing IoT applications on nRF91-based devices.
-It is built on the [nRF Connect SDK](https://www.nordicsemi.com/Products/Development-software/nRF-Connect-SDK) and [Zephyr RTOS](https://docs.zephyrproject.org/latest/), and provides a modular, event-driven architecture suitable for battery-powered IoT use cases.
-The framework supports features such as cloud connectivity, location tracking, and sensor data collection.
+## Core features / TODO
 
-The system is organized into modules, each responsible for a specific functionality, such as managing network connectivity, handling cloud communication, or collecting environmental data.
-Modules communicate through [zbus](https://docs.zephyrproject.org/latest/services/zbus/index.html) channels, ensuring loose coupling and maintainability.
-
-**Supported hardware**:
-
-- [Thingy:91](https://www.nordicsemi.com/Products/Development-hardware/Thingy-91) (nRF9160)
-
-If you are new to nRF91 series and cellular IoT, consider taking the [Nordic Developer Academy Cellular Fundamentals Course](https://academy.nordicsemi.com/courses/cellular-iot-fundamentals).
-
-<p align="center">
-  <img src="docs/images/att-map.png" alt="nRF Cloud - Asset tracking map view" width="800" />
-  <br>
-  <em>Thingy:91 X reporting its location to nRF Cloud running the Asset Tracker Template</em>
-</p>
-
----
+- [ ] connect to LTE
+- [ ] disconnect from LTE
+- [ ] go to deep sleep (ARMED)
+- [ ] acquire GPS lock
+- [ ] validate current usage on shadow board < 40uA
+- [ ] measure battery voltage
+- [ ] over the air update (FOTA)
+- [ ] detect movement
+- [ ] handle "device in use, ignore movement" situation
 
 ## Get started
 
