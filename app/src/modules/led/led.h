@@ -21,28 +21,25 @@ extern "C" {
 #endif
 
 /* Channels provided by this module */
-ZBUS_CHAN_DECLARE(
-	led_chan
-);
+ZBUS_CHAN_DECLARE(led_chan);
 
 enum led_msg_type {
-	LED_RGB_SET,
+    LED_RGB_SET,
 };
 
 struct led_msg {
-	enum led_msg_type type;
+    enum led_msg_type type;
 
-	/** RGB values (0 to 255) */
-	uint8_t red;
-	uint8_t green;
-	uint8_t blue;
+    /** RGB values (0 to 255) */
+    uint8_t red;
+    uint8_t green;
 
-	/** Duration of the RGB on/off cycle */
-	uint32_t duration_on_msec;
-	uint32_t duration_off_msec;
+    /** Duration of the RGB on/off cycle */
+    uint32_t duration_on_msec;
+    uint32_t duration_off_msec;
 
-	/** Number of on/off cycles (-1 indicates forever) */
-	int repetitions;
+    /** Number of on/off cycles (-1 indicates forever) */
+    int repetitions;
 };
 
 #ifdef __cplusplus

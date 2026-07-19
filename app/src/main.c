@@ -170,12 +170,11 @@ static void trigger_sampling(struct main_state *state_object) {
 #endif
 
 #if defined(CONFIG_APP_LED)
-    /* Blue pattern to indicate sampling */
+    /* Green pattern to indicate sampling */
     struct led_msg led_msg = {
         .type = LED_RGB_SET,
         .red = 0,
-        .green = 0,
-        .blue = 55,
+        .green = 55,
         .duration_on_msec = 250,
         .duration_off_msec = 2000,
         .repetitions = 10,
