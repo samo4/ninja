@@ -33,12 +33,10 @@ BUILD_ASSERT(CONFIG_APP_ENVIRONMENTAL_WATCHDOG_TIMEOUT_SECONDS >
                  CONFIG_APP_ENVIRONMENTAL_MSG_PROCESSING_TIMEOUT_SECONDS,
              "Watchdog timeout must be greater than maximum message processing time");
 
-/* State machine */
+// State machine
 
-/* Environmental module states.
- */
+// Environmental module states
 enum environmental_module_state {
-    /* The module is running and waiting for sensor value requests */
     STATE_RUNNING,
 };
 
@@ -54,10 +52,10 @@ struct environmental_state_object {
 #endif
 };
 
-/* Forward declarations of state handlers */
+// Forward declarations of state handlers
 static enum smf_state_result state_running_run(void *obj);
 
-/* State machine definition */
+// State machine definition
 static const struct smf_state states[] = {
     [STATE_RUNNING] = SMF_CREATE_STATE(NULL, state_running_run, NULL, NULL, NULL),
 };
@@ -67,22 +65,16 @@ static const struct smf_state states[] = {
 #define LIS2DTW12_ID_VALUE 0x44
 
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-/* Read len bytes starting at reg using the proven dual-buffer SPI pattern */
+// Read len bytes starting at reg using the proven dual-buffer SPI pattern
 static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, uint8_t reg, uint8_t *data, uint16_t len) {
     uint8_t tx_buf[2] = {reg | LIS2DTW12_SPI_READ, 0};
     const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 2};
     const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
-    /*
-     * RX uses 2 buffers:
-     *   buf[0] = {NULL, 1} — discards the dummy byte received during address phase
-     *   buf[1] = {data, len} — receives the actual register data
-     */
     const struct spi_buf rx_buf[2] = {
         {.buf = NULL, .len = 1},
-        {.buf = data, .len = len},
+        {.buf = data, .len = len}, // actual data
     };
     const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
-
     if (spi_transceive(spi->bus, &spi->config, &tx, &rx)) {
         return -EIO;
     }
@@ -115,20 +107,13 @@ static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
 }
 
 bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi) {
-    uint8_t chip_id;
-    int err;
+    // LIS2DTW12 boots in I2C mode by default and only switches to SPI after detecting a high-to-low transition on CS.
 
-    /*
-     * LIS2DTW12 boots in I2C mode by default and only switches to SPI
-     * after detecting a high-to-low transition on CS.  The first SPI
-     * transaction after asserting CS may return garbage (0xFF) while the
-     * sensor switches.  Perform a dummy read (any register) to complete
-     * the mode switch before checking WHO_AM_I.
-     */
     uint8_t dummy;
     (void)lis2dtw12_spi_read(spi, 0x00, &dummy, 1);
 
-    err = lis2dtw12_spi_read(spi, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
+    uint8_t chip_id;
+    int err = lis2dtw12_spi_read(spi, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
     if (err) {
         LOG_ERR("SPI communication failed entirely: %d", err);
         return false;
@@ -191,7 +176,7 @@ static void env_wdt_callback(int channel_id, void *user_data) {
     SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
 }
 
-/* State handlers */
+// State handlers
 
 static enum smf_state_result state_running_run(void *obj) {
     struct environmental_state_object *state_object = obj;

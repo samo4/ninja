@@ -7,7 +7,7 @@
  *
  * Select the personality at build time via Kconfig:
  *   CONFIG_APP_PERSONALITY_REPORTING     — periodic cloud reporting
- *   CONFIG_APP_PERSONALITY_LOW_POWER_TEST — extreme low power test
+ *   CONFIG_APP_PERSONALITY_LOW_POWER_TEST — measure, post, disconnect, sleep
  *
  * Each personality owns its own SMF state machine.  main() just
  * feeds the watchdog, waits for zbus messages, and dispatches
@@ -54,18 +54,16 @@
 #error "No personality selected. Set CONFIG_APP_PERSONALITY_REPORTING or CONFIG_APP_PERSONALITY_LOW_POWER_TEST."
 #endif
 
-/* Register log module */
 LOG_MODULE_REGISTER(main, 4);
 
-/* Register subscriber */
 ZBUS_MSG_SUBSCRIBER_DEFINE(main_subscriber);
 
-/* Add main_subscriber as observer to all channels in the personality's list */
+// Add main_subscriber as observer to all channels in the personality's list
 #define ADD_OBSERVERS(_chan, _type) ZBUS_CHAN_ADD_OBS(_chan, main_subscriber, 0);
 
 PERSONALITY_CHANNEL_LIST(ADD_OBSERVERS)
 
-/* Static helper function */
+// Static helper function
 static void task_wdt_callback(int channel_id, void *user_data) {
     LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
     SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
@@ -90,7 +88,7 @@ int main(void) {
         return -EFAULT;
     }
 
-    /* Run the initial SMF transition (e.g. fire first sample) */
+    // Run the initial SMF transition (e.g. fire first sample)
     personality_process(&state);
 
     while (1) {
@@ -100,7 +98,6 @@ int main(void) {
             SEND_FATAL_ERROR();
             return err;
         }
-
         err = zbus_sub_wait_msg(&main_subscriber, &state.chan, state.msg_buf, zbus_wait_ms);
         if (err == -ENOMSG) {
             continue;
@@ -109,8 +106,6 @@ int main(void) {
             SEND_FATAL_ERROR();
             return err;
         }
-
-        /* Dispatch to the active personality's SMF */
         personality_process(&state);
     }
 }

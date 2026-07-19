@@ -23,9 +23,11 @@ config APP_PERSONALITY_REPORTING
 config APP_PERSONALITY_LOW_POWER_TEST
 	bool "Low Power Test"
 	help
-	  Minimal-power profile: reads battery voltage, posts to
-	  cloud, disconnects from LTE, and sleeps for a long interval.
-	  No location or environmental sensors.
+	  Measure environmental sensors → post to cloud → disconnect
+	  LTE → sleep with modem off → repeat.  Half as many
+	  measurements as the Cloud Reporting personality, but
+	  provides a modem-off window during which board-level
+	  power consumption can be measured with everything idle.
 
 endchoice
 

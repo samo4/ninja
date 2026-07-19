@@ -15,18 +15,16 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
-#include "network.h"
-#if defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
-#endif
+#include "network.h"
 
 LOG_MODULE_REGISTER(cloud_post, CONFIG_APP_CLOUD_POST_LOG_LEVEL);
 
+ZBUS_CHAN_DEFINE(cloud_post_chan, struct cloud_post_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY, ZBUS_MSG_INIT(0));
+
 ZBUS_MSG_SUBSCRIBER_DEFINE(cloud_post);
 
-#if defined(CONFIG_APP_ENVIRONMENTAL)
 ZBUS_CHAN_ADD_OBS(environmental_chan, cloud_post, 0);
-#endif
 
 ZBUS_CHAN_ADD_OBS(network_chan, cloud_post, 0);
 
@@ -35,28 +33,21 @@ static const int REST_TIMEOUT_MS = 30000;
 static struct {
     bool connected;
     bool connect_requested;
-#if defined(CONFIG_APP_ENVIRONMENTAL)
     bool env_received;
     struct environmental_msg env_data;
-#endif
 } mod;
 
-static void mod_reset_samples(void) {
-#if defined(CONFIG_APP_ENVIRONMENTAL)
-    mod.env_received = false;
-#endif
-}
+static void mod_reset_samples(void) { mod.env_received = false; }
 
 static void mod_request_connect(void) {
     const struct network_msg msg = {.type = NETWORK_CONNECT};
-    int err;
-
     if (mod.connect_requested) {
+        LOG_DBG("LTE connect already requested, waiting for NETWORK_CONNECTED");
         return;
     }
 
     LOG_INF("Requesting LTE connection");
-    err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
+    int err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
     if (err) {
         LOG_ERR("zbus_chan_pub NETWORK_CONNECT failed: %d", err);
         return;
@@ -65,7 +56,6 @@ static void mod_request_connect(void) {
 }
 
 static void cloud_post_send(void) {
-    int err;
     char resp_buf[1024];
     char csv_body[256];
     const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
@@ -73,20 +63,16 @@ static void cloud_post_send(void) {
     int voltage_mv = 0;
 
     // no imei :-(
-    strncpy(imei_buf, "?", sizeof(imei_buf) - 1);
+    strncpy(imei_buf, "xxx", sizeof(imei_buf) - 1);
 
-    err = modem_battery_voltage_get(&voltage_mv);
+    int err = modem_battery_voltage_get(&voltage_mv);
     if (err) {
         LOG_WRN("Failed to get modem battery voltage: %d", err);
         voltage_mv = -err;
     }
     LOG_INF("Modem battery voltage: %d mV", voltage_mv);
 
-#if defined(CONFIG_APP_ENVIRONMENTAL)
     snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", imei_buf, voltage_mv, mod.env_data.temperature);
-#else
-    snprintf(csv_body, sizeof(csv_body), "%s,%d,0", imei_buf, voltage_mv);
-#endif
 
     LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
             csv_body);
@@ -113,23 +99,17 @@ static void cloud_post_send(void) {
     if (err == 0) {
         LOG_INF("Cloud POST response: HTTP %d (%s), body: %d bytes", resp.http_status_code, resp.http_status_code_str,
                 resp.response_len);
-        if (resp.response_len > 0) {
-            /* Split into chunks to avoid Segger RTT message drops */
-            int offset = 0;
-            const int chunk_size = 64;
-            while (offset < resp.response_len) {
-                int len = resp.response_len - offset;
-                if (len > chunk_size) {
-                    len = chunk_size;
-                }
-                LOG_DBG("Response body [%d-%d]: %.*s", offset, offset + len - 1, len, resp.response + offset);
-                offset += len;
-            }
-        }
+        LOG_INF("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
+        struct cloud_post_msg done_msg = {.type = CLOUD_POST_SEND_DONE, .http_status = resp.http_status_code};
+        zbus_chan_pub(&cloud_post_chan, &done_msg, PUB_TIMEOUT);
         return;
     }
 
     LOG_ERR("REST request failed: %d", err);
+
+    /* Notify subscribers that POST failed */
+    struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = err};
+    zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
 }
 
 static void cloud_post_wdt_callback(int channel_id, void *user_data) {
@@ -141,11 +121,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     int task_wdt_id;
     const struct zbus_channel *chan;
-#if defined(CONFIG_APP_ENVIRONMENTAL)
     uint8_t msg_buf[MAX(sizeof(struct environmental_msg), sizeof(struct network_msg))];
-#else
-    uint8_t msg_buf[sizeof(struct network_msg)];
-#endif
 
     ARG_UNUSED(arg1);
     ARG_UNUSED(arg2);
@@ -189,9 +165,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 LOG_DBG("LTE disconnected");
                 mod.connected = false;
             }
-        }
-#if defined(CONFIG_APP_ENVIRONMENTAL)
-        else if (chan == &environmental_chan) {
+        } else if (chan == &environmental_chan) {
             const struct environmental_msg *msg = (const struct environmental_msg *)msg_buf;
 
             if (msg->type == ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE) {
@@ -200,14 +174,9 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 LOG_DBG("Env: %.2f C", msg->temperature);
             }
         }
-#endif
 
         /* Samples ready — send if connected, otherwise request connection */
-        if ((!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL)
-#if defined(CONFIG_APP_ENVIRONMENTAL)
-             || mod.env_received
-#endif
-             )) {
+        if ((!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL) || mod.env_received)) {
             if (mod.connected) {
                 cloud_post_send();
                 mod_reset_samples();

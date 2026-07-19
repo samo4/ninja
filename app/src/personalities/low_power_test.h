@@ -4,21 +4,23 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  *
  * Low Power Test personality:
- *   Bare minimum: connect to LTE, disconnect, sleep, repeat.
- *   No sensor sampling, no data posting, no REST — just
- *   measures baseline power of the LTE attach/detach cycle.
+ *   Measure sensors → post to cloud → turn off modem → sleep → repeat.
+ *   Half as many measurements as reporting, but allows measuring
+ *   board power consumption with everything off during sleep.
  */
 
 #ifndef _LOW_POWER_TEST_H_
 #define _LOW_POWER_TEST_H_
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <zephyr/kernel.h>
 #include <zephyr/smf.h>
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
+#include "cloud_post.h"
+#include "environmental.h"
+#include "led.h"
 #include "network.h"
 
 #ifdef __cplusplus
@@ -27,7 +29,7 @@ extern "C" {
 
 /* Timer channel types */
 enum low_power_timer_msg_type {
-    LOW_POWER_TIMER_EXPIRED_SAMPLE_DATA,
+    LOW_POWER_TIMER_EXPIRED,
 };
 
 struct low_power_timer_msg {
@@ -36,17 +38,21 @@ struct low_power_timer_msg {
 
 ZBUS_CHAN_DECLARE(timer_chan);
 
-/* X-macro: low-power listens only to network + timer */
-#define LOW_POWER_CHANNEL_LIST(X)       \
-    X(network_chan, struct network_msg) \
-    X(timer_chan, struct low_power_timer_msg)
+/* X-macro: subscribe to timer (self), environmental (sensor samples),
+ * network (connect/disconnect events), and cloud_post (POST done).
+ */
+#define LOW_POWER_CHANNEL_LIST(X)             \
+    X(timer_chan, struct low_power_timer_msg) \
+    X(cloud_post_chan, struct cloud_post_msg) \
+    X(environmental_chan, struct environmental_msg) \
+    X(network_chan, struct network_msg)
 
 #define LOW_POWER_MAX_MSG_SIZE MAX_MSG_SIZE_FROM_LIST(LOW_POWER_CHANNEL_LIST)
 
-/* Low-power internal SMF states */
+/* SMF states */
 enum low_power_state {
-    LOW_POWER_STATE_INITIAL_SAMPLE,
-    LOW_POWER_STATE_CONNECTING,
+    LOW_POWER_STATE_SAMPLING,
+    LOW_POWER_STATE_WAITING,
     LOW_POWER_STATE_DISCONNECTING,
     LOW_POWER_STATE_SLEEPING,
     LOW_POWER_STATE_REBOOTING,
@@ -59,7 +65,7 @@ struct low_power_state_object {
     const struct zbus_channel *chan;
     uint8_t msg_buf[LOW_POWER_MAX_MSG_SIZE];
 
-    /* --- personality-specific fields --- */
+    /* Personality fields */
     uint32_t sample_interval_sec;
 };
 
