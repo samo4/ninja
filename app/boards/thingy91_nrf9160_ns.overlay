@@ -9,6 +9,7 @@
  * definition before installing the common no-MCUboot layout.
  */
 /delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
 /delete-node/ &slot1_partition;
 /delete-node/ &scratch_partition;
 
