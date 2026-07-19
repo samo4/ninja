@@ -69,14 +69,11 @@ static void cloud_post_send(void) {
     char resp_buf[1024];
     char csv_body[256];
     const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
-    char imei_buf[20] = {0};
+    char imei_buf[32] = {0};
     int voltage_mv = 0;
 
-    err = modem_info_string_get(MODEM_INFO_IMEI, imei_buf, sizeof(imei_buf));
-    if (err) {
-        LOG_WRN("Failed to get IMEI: %d", err);
-        strncpy(imei_buf, "unknown", sizeof(imei_buf) - 1);
-    }
+    // no imei :-(
+    strncpy(imei_buf, "?", sizeof(imei_buf) - 1);
 
     err = modem_battery_voltage_get(&voltage_mv);
     if (err) {
@@ -159,11 +156,6 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
         LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
         SEND_FATAL_ERROR();
         return;
-    }
-
-    err = modem_info_init();
-    if (err) {
-        LOG_WRN("modem_info_init failed: %d", err);
     }
 
     LOG_DBG("Cloud POST module task started");
