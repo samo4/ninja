@@ -5,6 +5,7 @@ Originals:
 https://github.com/samo4/shadowguard
 https://github.com/samo4/shadow_playground
 https://github.com/samo4/ShadowGuardGNSS
+https://github.com/samo4/lis2dtw12
 
 This repository is a fork of the [nRF Asset Tracker Template](https://github.com/nrfconnect/Asset-Tracker-Template), adapted with significant trimming of features.
 
