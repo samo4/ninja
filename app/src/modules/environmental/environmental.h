@@ -14,49 +14,39 @@
 extern "C" {
 #endif
 
-
 /* Channels provided by this module */
-ZBUS_CHAN_DECLARE(
-	environmental_chan
-);
+ZBUS_CHAN_DECLARE(environmental_chan);
 
 enum environmental_msg_type {
-	/* Output message types */
+    /* Output message types */
 
-	/* Response message to a request for current environmental sensor values.
-	 * The sampled values are found in the respective fields of the message structure.
-	 */
-	ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE = 0x1,
+    /* Response message to a request for current environmental sensor values.
+     * The sampled values are found in the respective fields of the message structure.
+     */
+    ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE = 0x1,
 
-	/* Input message types */
+    /* Input message types */
 
-	/* Request to sample the current environmental sensor values.
-	 * The response is sent as a ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE message.
-	 */
-	ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
+    /* Request to sample the current environmental sensor values.
+     * The response is sent as a ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE message.
+     */
+    ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
 };
 
 struct environmental_msg {
-	enum environmental_msg_type type;
+    enum environmental_msg_type type;
 
-	/** Contains the current temperature in celsius. */
-	double temperature;
+    /** Contains the current temperature in celsius. */
+    double temperature;
 
-	/** Contains the current humidity in percentage. */
-	double humidity;
-
-	/** Contains the current pressure in Pa. */
-	double pressure;
-
-	/** Timestamp when the sample was taken in milliseconds.
-	 *  This is either:
-	 * - Unix time in milliseconds if the system clock was synchronized at sampling time, or
-	 * - Uptime in milliseconds if the system clock was not synchronized at sampling time.
-	 * Only valid for ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE events.
-	 */
-	int64_t timestamp;
+    /** Timestamp when the sample was taken in milliseconds.
+     *  This is either:
+     * - Unix time in milliseconds if the system clock was synchronized at sampling time, or
+     * - Uptime in milliseconds if the system clock was not synchronized at sampling time.
+     * Only valid for ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE events.
+     */
+    int64_t timestamp;
 };
-
 
 #ifdef __cplusplus
 }

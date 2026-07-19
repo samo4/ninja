@@ -5,10 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR/app"
 
-BOARD="thingy91/nrf9160/ns"
+# Required environment variables
+: "${BOARD_TARGET:?Must be set — run: scripts/thingy.sh or scripts/shadow.sh}"
+: "${JLINK_SNR:?Must be set — run: scripts/thingy.sh or scripts/shadow.sh}"
+: "${JLINK_DEVICE:=nRF9160_xxAA}"
+
+BOARD="$BOARD_TARGET"
 MERGED_HEX="$PROJECT_DIR/app/build/app/zephyr/tfm_merged.hex"
-SERIAL="260114597"
-DEVICE="nRF9160_xxAA"
+SERIAL="$JLINK_SNR"
+DEVICE="$JLINK_DEVICE"
 
 usage() {
     cat <<EOF
@@ -62,7 +67,7 @@ check_hardfault() {
     local output
     output=$(echo "connect
 halt
-exit" | JLinkExe -device nRF9160_xxAA -if swd -speed 4000 2>&1)
+exit" | JLinkExe -device "$DEVICE" -if swd -speed 4000 -SelectEmuBySN "$SERIAL" 2>&1)
 
     # Display the full tool output before interpreting
     echo "--- Full JLinkExe output ---"
@@ -99,7 +104,7 @@ do_flash() {
 
     while [ "$attempt" -le "$max_attempts" ]; do
         echo "=== Flashing (attempt $attempt/$max_attempts) ==="
-        if west flash --erase --no-rebuild --hex-file "$MERGED_HEX"; then
+        if west flash --erase --no-rebuild --hex-file "$MERGED_HEX" --dev-id "$SERIAL"; then
             echo "Flash OK"
             return 0
         fi
@@ -124,7 +129,7 @@ do_flash() {
 do_reset() {
     echo "=== Rebooting device via J-Link ==="
     echo "connect
-exit" | JLinkExe -device nRF9160_xxAA -if swd -speed 4000 2>&1 | grep -E "Connected|O\.K\." || true
+exit" | JLinkExe -device "$DEVICE" -if swd -speed 4000 -SelectEmuBySN "$SERIAL" 2>&1 | grep -E "Connected|O\.K\." || true
     echo "Reset OK"
 }
 

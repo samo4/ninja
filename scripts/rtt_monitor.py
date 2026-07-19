@@ -59,12 +59,16 @@ def main():
     parser.add_argument("--elf", default=None,
                         help="Path to zephyr.elf (default: app/build/app/zephyr/zephyr.elf)")
     parser.add_argument("--snr", default=None,
-                        help="J-Link serial number (default: auto-detect)")
-    parser.add_argument("--device", default="nRF9160_xxAA",
-                        help="Device name (default: nRF9160_xxAA)")
+                        help="J-Link serial number (default: $JLINK_SNR env, or auto-detect)")
+    parser.add_argument("--device", default=None,
+                        help="Device name (default: $JLINK_DEVICE env, or nRF9160_xxAA)")
     parser.add_argument("--channel", default=0, type=int,
                         help="RTT channel to read (default: 0)")
     args = parser.parse_args()
+
+    # Fall back to environment variables if CLI args not provided
+    snr = args.snr or os.environ.get("JLINK_SNR")
+    device = args.device or os.environ.get("JLINK_DEVICE", "nRF9160_xxAA")
 
     # Resolve ELF path
     if args.elf:
@@ -86,8 +90,8 @@ def main():
     jlink = pylink.JLink()
 
     try:
-        if args.snr:
-            jlink.open(serial_no=int(args.snr))
+        if snr:
+            jlink.open(serial_no=int(snr))
         else:
             jlink.open()
 
@@ -98,10 +102,10 @@ def main():
         # jlink.set_speed(args.if_speed)
 
         # Retry connecting to target (device may still be resetting from flash)
-        print(f"  Connecting to {args.device}...", file=sys.stderr)
+        print(f"  Connecting to {device}...", file=sys.stderr)
         for attempt in range(5):
             try:
-                jlink.connect(args.device, verbose=False)
+                jlink.connect(device, verbose=False)
                 # Verify connection
                 _ = jlink.core_id()
                 break

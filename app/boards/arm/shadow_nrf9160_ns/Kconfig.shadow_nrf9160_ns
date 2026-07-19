@@ -1,0 +1,9 @@
+#
+# Copyright (c) 2026 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config BOARD_SHADOW_NRF9160_NS
+	bool "Shadow nRF9160 Non-Secure"
+	select SOC_NRF9160_SICA

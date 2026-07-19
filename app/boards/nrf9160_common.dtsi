@@ -1,0 +1,54 @@
+/*
+ * Copyright (c) 2026 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/*
+ * Common flash layout (no MCUboot / no OTA) for nRF9160-based boards.
+ *
+ * New layout (1 MiB):
+ *   0x0000_0000  TF-M secure image      ( 64 kB, SPU-region aligned)
+ *   0x0001_0000  Application (non-secure) image  (952 kB)
+ *   0x000f_e000  Settings storage       (  8 kB)
+ *
+ * The S/NS boundary must align to the nRF9160 SPU region size (32 kB), so
+ * the secure region is rounded up from TF-M's ~47.5 kB footprint to 64 kB.
+ *
+ * NOTE: Boards that inherit from an existing board dts with pre-defined
+ * partitions must delete the old partition nodes BEFORE #include'ing this file.
+ */
+&flash0 {
+	partitions {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		slot0_partition: partition@0 {
+			compatible = "zephyr,mapped-partition";
+			label = "image-0";
+			reg = <0x00000000 0xfe000>;
+			ranges = <0x0 0x00000000 0xfe000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			slot0_s_partition: partition@0 {
+				compatible = "zephyr,mapped-partition";
+				label = "image-0-secure";
+				reg = <0x00000000 0x10000>;
+			};
+
+			slot0_ns_partition: partition@10000 {
+				compatible = "zephyr,mapped-partition";
+				label = "image-0-nonsecure";
+				reg = <0x00010000 0xee000>;
+			};
+		};
+
+		storage_partition: partition@fe000 {
+			compatible = "zephyr,mapped-partition";
+			label = "storage";
+			reg = <0x000fe000 0x2000>;
+		};
+	};
+};

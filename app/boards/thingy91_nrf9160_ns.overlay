@@ -4,43 +4,15 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-/ {
-	chosen {
-		nordic,modem-trace-uart = &uart1;
-		zephyr,code-partition = &slot0_ns_partition;
-	};
-};
-
-&bme680 {
-	status = "okay";
-};
-
 /*
- * No MCUboot / no OTA: reclaim the mcuboot, secondary-slot, and scratch
- * regions for the application. New flash layout (1 MiB):
- * 0x0000_0000  TF-M secure image      ( 64 kB, SPU-region aligned)
- * 0x0001_0000  Application (non-secure) image  (952 kB)
- * 0x000f_e000  Settings storage       (  8 kB)
- *
- * The S/NS boundary must align to the nRF9160 SPU region size (32 kB), so
- * the secure region is rounded up from TF-M's ~47.5 kB footprint to 64 kB.
+ * Delete the MCUboot/DFU partitions inherited from the thingy91 board
+ * definition before installing the common no-MCUboot layout.
  */
 /delete-node/ &boot_partition;
 /delete-node/ &slot1_partition;
 /delete-node/ &scratch_partition;
 
-&slot0_partition {
-	reg = <0x00000000 0xfe000>;
-	ranges = <0x0 0x00000000 0xfe000>;
-};
-
-&slot0_s_partition {
-	reg = <0x00000000 0x10000>;
-};
-
-&slot0_ns_partition {
-	reg = <0x00010000 0xee000>;
-};
+#include "nrf9160_common.dtsi"
 
 /*
  * Carve out 2 KiB at the start of the application SRAM for the SEGGER RTT
@@ -57,6 +29,10 @@
 };
 
 / {
+	chosen {
+		nordic,modem-trace-uart = &uart1;
+	};
+
 	rtt_sram: sram@2000c568 {
 		compatible = "zephyr,memory-region", "mmio-sram";
 		reg = <0x2000c568 0x800>;
@@ -66,4 +42,8 @@
 	aliases {
 		rtt-custom-section = &rtt_sram;
 	};
+};
+
+&bme680 {
+	status = "okay";
 };

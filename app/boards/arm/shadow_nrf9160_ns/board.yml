@@ -1,0 +1,8 @@
+board:
+  name: shadow
+  full_name: "Shadow"
+  vendor: custom
+  socs:
+    - name: nrf9160
+      variants:
+        - name: ns

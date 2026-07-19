@@ -805,12 +805,16 @@ Examples:
                         help='Path to coredump ELF file for offline analysis (mutually exclusive with J-Link)')
     parser.add_argument(
         '--device',
-        default='Cortex-M33',
-        help='J-Link device name for live debugging (default: Cortex-M33). Only used without --coredump.'
+        default=None,
+        help='J-Link device name (default: $JLINK_DEVICE env, or Cortex-M33). Only used without --coredump.'
     )
     parser.add_argument('--snr',
-                        help='J-Link serial number for live debugging. Only used without --coredump.')
+                        help='J-Link serial number (default: $JLINK_SNR env). Only used without --coredump.')
     args = parser.parse_args()
+
+    # Fall back to environment variables if CLI args not provided
+    device = args.device or os.environ.get("JLINK_DEVICE", "Cortex-M33")
+    snr = args.snr or os.environ.get("JLINK_SNR")
 
     elf_path = Path(args.elf)
 
@@ -844,7 +848,7 @@ Examples:
         sys.exit(0)
 
     # Default: live device via J-Link
-    interactive_loop(lookup, args.device, args.snr)
+    interactive_loop(lookup, device, snr)
 
 
 if __name__ == "__main__":

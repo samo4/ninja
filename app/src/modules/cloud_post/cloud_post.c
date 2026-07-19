@@ -12,16 +12,23 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
-#include "environmental.h"
 #include "network.h"
-#include "power.h"
+#if defined(CONFIG_APP_ENVIRONMENTAL)
+#include "environmental.h"
+#endif
 
 LOG_MODULE_REGISTER(cloud_post, CONFIG_APP_CLOUD_POST_LOG_LEVEL);
 
 ZBUS_MSG_SUBSCRIBER_DEFINE(cloud_post);
 
+#if defined(CONFIG_APP_POWER)
 ZBUS_CHAN_ADD_OBS(power_chan, cloud_post, 0);
+#endif
+
+#if defined(CONFIG_APP_ENVIRONMENTAL)
 ZBUS_CHAN_ADD_OBS(environmental_chan, cloud_post, 0);
+#endif
+
 ZBUS_CHAN_ADD_OBS(network_chan, cloud_post, 0);
 
 static const int REST_TIMEOUT_MS = 30000;
@@ -29,15 +36,23 @@ static const int REST_TIMEOUT_MS = 30000;
 static struct {
     bool connected;
     bool connect_requested;
+#if defined(CONFIG_APP_POWER)
     bool battery_received;
     struct power_msg battery_data;
+#endif
+#if defined(CONFIG_APP_ENVIRONMENTAL)
     bool env_received;
     struct environmental_msg env_data;
+#endif
 } mod;
 
 static void mod_reset_samples(void) {
+#if defined(CONFIG_APP_POWER)
     mod.battery_received = false;
+#endif
+#if defined(CONFIG_APP_ENVIRONMENTAL)
     mod.env_received = false;
+#endif
 }
 
 static void mod_request_connect(void) {
@@ -63,9 +78,13 @@ static void cloud_post_send(void) {
     char csv_body[256];
     const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
 
-    snprintf(csv_body, sizeof(csv_body), "%.0f,%.0f,%.3f,%d,%.2f,%.2f,%.2f", (double)mod.battery_data.timestamp,
+#if defined(CONFIG_APP_POWER) && defined(CONFIG_APP_ENVIRONMENTAL)
+    snprintf(csv_body, sizeof(csv_body), "%.0f,%.0f,%.3f,%d,%.2f", (double)mod.battery_data.timestamp,
              mod.battery_data.percentage, mod.battery_data.voltage, mod.battery_data.charging ? 1 : 0,
-             mod.env_data.temperature, mod.env_data.pressure, mod.env_data.humidity);
+             mod.env_data.temperature);
+#else
+    snprintf(csv_body, sizeof(csv_body), "0,0,0,0,0");
+#endif
 
     LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
             csv_body);
@@ -120,7 +139,15 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     int task_wdt_id;
     const struct zbus_channel *chan;
+#if defined(CONFIG_APP_POWER) && defined(CONFIG_APP_ENVIRONMENTAL)
     uint8_t msg_buf[MAX(MAX(sizeof(struct power_msg), sizeof(struct environmental_msg)), sizeof(struct network_msg))];
+#elif defined(CONFIG_APP_POWER)
+    uint8_t msg_buf[MAX(sizeof(struct power_msg), sizeof(struct network_msg))];
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
+    uint8_t msg_buf[MAX(sizeof(struct environmental_msg), sizeof(struct network_msg))];
+#else
+    uint8_t msg_buf[sizeof(struct network_msg)];
+#endif
 
     ARG_UNUSED(arg1);
     ARG_UNUSED(arg2);
@@ -159,7 +186,14 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 mod.connected = true;
                 mod.connect_requested = false;
 
-                if (mod.battery_received && mod.env_received) {
+                if (0
+#if defined(CONFIG_APP_POWER)
+                    && mod.battery_received
+#endif
+#if defined(CONFIG_APP_ENVIRONMENTAL)
+                    && mod.env_received
+#endif
+                ) {
                     cloud_post_send();
                     mod_reset_samples();
                 }
@@ -167,7 +201,9 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 LOG_DBG("LTE disconnected");
                 mod.connected = false;
             }
-        } else if (chan == &power_chan) {
+        }
+#if defined(CONFIG_APP_POWER)
+        else if (chan == &power_chan) {
             const struct power_msg *msg = (const struct power_msg *)msg_buf;
 
             if (msg->type == POWER_BATTERY_PERCENTAGE_SAMPLE_RESPONSE) {
@@ -175,18 +211,31 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 mod.battery_data = *msg;
                 LOG_DBG("Battery: %.0f%%, %.3fV, charging=%d", msg->percentage, msg->voltage, msg->charging);
             }
-        } else if (chan == &environmental_chan) {
+        }
+#endif
+#if defined(CONFIG_APP_ENVIRONMENTAL)
+        else if (chan == &environmental_chan) {
             const struct environmental_msg *msg = (const struct environmental_msg *)msg_buf;
 
             if (msg->type == ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE) {
                 mod.env_received = true;
                 mod.env_data = *msg;
-                LOG_DBG("Env: %.2f C, %.2f Pa, %.2f %%", msg->temperature, msg->pressure, msg->humidity);
+                LOG_DBG("Env: %.2f C", msg->temperature);
             }
         }
+#endif
 
         /* Samples ready — send if connected, otherwise request connection */
-        if (mod.battery_received && mod.env_received) {
+        if ((!IS_ENABLED(CONFIG_APP_POWER)
+#if defined(CONFIG_APP_POWER)
+             || mod.battery_received
+#endif
+             ) &&
+            (!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL)
+#if defined(CONFIG_APP_ENVIRONMENTAL)
+             || mod.env_received
+#endif
+             )) {
             if (mod.connected) {
                 cloud_post_send();
                 mod_reset_samples();

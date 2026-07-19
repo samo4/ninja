@@ -5,13 +5,14 @@
 #
 
 choice BOOTLOADER
-	default BOOTLOADER_MCUBOOT if !BOARD_NATIVE_SIM && !BOARD_THINGY91_NRF9160_NS
+	default BOOTLOADER_MCUBOOT if !BOARD_NATIVE_SIM && !BOARD_THINGY91_NRF9160_NS && !BOARD_SHADOW_NRF9160_NS
 endchoice
 
 # Skip the board's own MCUboot default (see thingy91/Kconfig.sysbuild) so the
 # choice above falls through to BOOTLOADER_NONE for this target: no OTA, no
 # swap slots, application runs directly after TF-M.
 config THINGY91_NO_PREDEFINED_LAYOUT
+	bool
 	default y if BOARD_THINGY91_NRF9160_NS
 
 config SECURE_BOOT_APPCORE

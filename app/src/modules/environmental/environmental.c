@@ -6,6 +6,7 @@
 
 #include <date_time.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/smf.h>
@@ -55,13 +56,13 @@ struct environmental_state_object {
     /* Buffer for last zbus message */
     uint8_t msg_buf[MAX_MSG_SIZE];
 
+#if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
     /* Pointer to the BME680 sensor device */
     const struct device *const bme680;
-
-    /* Sensor values */
-    double temperature;
-    double pressure;
-    double humidity;
+#else
+    /* SPI bus spec for direct LIS2DTW12 temperature reading */
+    struct spi_dt_spec lis2dtw12_spi;
+#endif
 };
 
 /* Forward declarations of state handlers */
@@ -72,45 +73,66 @@ static const struct smf_state states[] = {
     [STATE_RUNNING] = SMF_CREATE_STATE(NULL, state_running_run, NULL, NULL, NULL),
 };
 
-static void sample_sensors(const struct device *const bme680) {
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
+    uint8_t tx_buf[3] = {0x0D | 0x80, 0x00, 0x00};
+    uint8_t rx_buf[3] = {0};
     int err;
-    struct sensor_value temp = {0};
-    struct sensor_value press = {0};
-    struct sensor_value humidity = {0};
 
-    err = sensor_sample_fetch(bme680);
+    const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 3};
+    const struct spi_buf rx_bufs = {.buf = rx_buf, .len = 3};
+    const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
+    const struct spi_buf_set rx = {.buffers = &rx_bufs, .count = 1};
+
+    err = spi_transceive(spi->bus, &spi->config, &tx, &rx);
+    if (err) {
+        LOG_ERR("LIS2DTW12 SPI read failed: %d", err);
+        return -1.0;
+    }
+
+    /* rx_buf[0] dummy, rx_buf[1] = OUT_T_L, rx_buf[2] = OUT_T_H */
+    int16_t raw = (int16_t)((rx_buf[2] << 8) | rx_buf[1]);
+
+    /* Conversion: temp_C = (raw / 256.0) + 25.0 */
+    return ((double)raw / 256.0) + 25.0;
+}
+#endif
+
+static void sample_sensors(struct environmental_state_object *state) {
+    int err;
+#if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+    struct sensor_value temp = {0};
+#endif
+
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+    double temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi);
+    if (temperature < -40.0) {
+        SEND_FATAL_ERROR();
+        return;
+    }
+#else
+    err = sensor_sample_fetch(state->bme680);
     if (err) {
         LOG_ERR("sensor_sample_fetch, error: %d", err);
         SEND_FATAL_ERROR();
         return;
     }
 
-    err = sensor_channel_get(bme680, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+    err = sensor_channel_get(state->bme680, SENSOR_CHAN_AMBIENT_TEMP, &temp);
     if (err) {
         LOG_ERR("sensor_channel_get, error: %d", err);
         SEND_FATAL_ERROR();
         return;
     }
-
-    err = sensor_channel_get(bme680, SENSOR_CHAN_PRESS, &press);
-    if (err) {
-        LOG_ERR("sensor_channel_get, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
-
-    err = sensor_channel_get(bme680, SENSOR_CHAN_HUMIDITY, &humidity);
-    if (err) {
-        LOG_ERR("sensor_channel_get, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
+#endif
 
     struct environmental_msg msg = {
         .type = ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE,
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+        .temperature = temperature,
+#else
         .temperature = sensor_value_to_double(&temp),
-        .pressure = sensor_value_to_double(&press),
-        .humidity = sensor_value_to_double(&humidity),
+#endif
         .timestamp = k_uptime_get(),
     };
 
@@ -121,7 +143,7 @@ static void sample_sensors(const struct device *const bme680) {
         return;
     }
 
-    LOG_DBG("Temperature: %.2f C, Pressure: %.2f Pa, Humidity: %.2f %%", msg.temperature, msg.pressure, msg.humidity);
+    LOG_DBG("Temperature: %.2f C", msg.temperature);
 
     err = zbus_chan_pub(&environmental_chan, &msg, PUB_TIMEOUT);
     if (err) {
@@ -139,11 +161,11 @@ static void env_wdt_callback(int channel_id, void *user_data) {
 /* State handlers */
 
 static enum smf_state_result state_running_run(void *obj) {
-    struct environmental_state_object const *state_object = obj;
+    struct environmental_state_object *state_object = obj;
     if (&environmental_chan == state_object->chan) {
         const struct environmental_msg *msg = (const struct environmental_msg *)state_object->msg_buf;
         if (msg->type == ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST) {
-            sample_sensors(state_object->bme680);
+            sample_sensors(state_object);
             return SMF_EVENT_HANDLED;
         }
     }
@@ -157,10 +179,38 @@ static void env_module_thread(void) {
     const uint32_t execution_time_ms = (CONFIG_APP_ENVIRONMENTAL_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
     const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
     static struct environmental_state_object environmental_state = {
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+        .lis2dtw12_spi =
+            {
+                .bus = DEVICE_DT_GET(DT_NODELABEL(spi2)),
+                .config =
+                    {
+                        .frequency = 1000000,
+                        .operation = SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA,
+                        .slave = 0,
+                    },
+            },
+#else
         .bme680 = DEVICE_DT_GET(DT_NODELABEL(bme680)),
+#endif
     };
 
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+    environmental_state.lis2dtw12_spi.config.cs = (struct spi_cs_control){
+        .gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_NODELABEL(spi2), cs_gpios, 0),
+        .delay = 0,
+    };
+#endif
+
     LOG_DBG("Environmental module task started");
+
+#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
+    if (!spi_is_ready_dt(&environmental_state.lis2dtw12_spi)) {
+        LOG_ERR("LIS2DTW12 SPI bus or CS not ready");
+        SEND_FATAL_ERROR();
+        return;
+    }
+#endif
 
     task_wdt_id = task_wdt_add(wdt_timeout_ms, env_wdt_callback, (void *)k_current_get());
     if (task_wdt_id < 0) {

@@ -6,10 +6,18 @@
 
 menuconfig APP_ENVIRONMENTAL
 	bool "Environmental module"
-	depends on BME680
 	default y
 
 if APP_ENVIRONMENTAL
+
+config APP_ENVIRONMENTAL_LIS2DTW12
+	bool "Use LIS2DTW12 temperature sensor over SPI"
+	depends on SPI
+	help
+	  Use the LIS2DTW12 accelerometer's integrated temperature sensor
+	  directly via SPI. The accelerometer part is handled by the
+	  LIS2DW12 driver (register-compatible). Temperature is read
+	  directly from registers 0x0D-0x0E.
 
 config APP_ENVIRONMENTAL_THREAD_STACK_SIZE
 	int "Thread stack size"
