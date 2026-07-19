@@ -74,7 +74,7 @@ JLinkRTTLogger -device nRF9160_xxAA -if SWD -speed 4000 -RTTAddress Auto
 
 See the [Getting Started](docs/common/getting_started.md) guide for detailed instructions on flashing, connecting to nRF Cloud, and testing.
 
-### Connecting to nRF Cloud (non-Nordic SIM)
+### Connecting to nRF Cloud (non-Nordic SIM) (deprecated)
 
 If you are using a third-party SIM (not an nRF Cloud SIM), the device needs to be provisioned with credentials and registered on nRF Cloud manually.
 

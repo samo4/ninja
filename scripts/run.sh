@@ -19,11 +19,12 @@ Options:
   flash       Flash the merged TF-M + app image (no rebuild)
   reset       Reboot the device via J-Link
   check       Check if device is in HardFault via J-Link
-  rtt         Start RTT viewer + client (alias for 'rtt auto')
+  rtt         Start RTT monitor (console output via pylink)
   rtt viewer  JLinkRTTViewer with correct RTT address
-  rtt client  JLinkRTTClient
+  rtt client  Start RTT monitor (console output via pylink)
   rtt addr    Print RTT control block address
-  all         Build + flash + reset + check (default)
+  all         Build + flash + RTT client
+  (default)   Build (pristine) + flash + RTT client
   -h, --help  Show this help
 EOF
     exit 0
@@ -41,15 +42,14 @@ do_rtt() {
     local cmd="${1:-auto}"
     case "$cmd" in
         viewer)
+            # GUI
             JLinkRTTViewer --device "$DEVICE" --interface SWD --speed 4000 --rttaddr "$(rtt_addr)" &
             ;;
-        client)
-            JLinkRTTClient
-            ;;
-        auto|"")
-            JLinkRTTViewer --device "$DEVICE" --interface SWD --speed 4000 --rttaddr "$(rtt_addr)" &
-            sleep 2
-            JLinkRTTClient
+        client|auto|"")
+            # Console monitor via pylink
+            "$PROJECT_DIR/scripts/rtt_monitor.py" \
+                --elf "$PROJECT_DIR/app/build/app/zephyr/zephyr.elf" \
+                --snr "$SERIAL"
             ;;
         addr)
             rtt_addr
@@ -82,8 +82,9 @@ exit" | JLinkExe -device nRF9160_xxAA -if swd -speed 4000 2>&1)
 }
 
 do_build() {
-    echo "=== Building for $BOARD ==="
-    west build -b "$BOARD" --pristine
+    local pristine="${1:+--pristine}"
+    echo "=== Building for $BOARD${pristine:+ (pristine)} ==="
+    west build -b "$BOARD" $pristine
     echo "Build OK"
 }
 
@@ -127,7 +128,7 @@ exit" | JLinkExe -device nRF9160_xxAA -if swd -speed 4000 2>&1 | grep -E "Connec
     echo "Reset OK"
 }
 
-case "${1:-all}" in
+case "${1:-}" in
     build)
         do_build
         ;;
@@ -144,9 +145,15 @@ case "${1:-all}" in
         shift 2>/dev/null || true
         do_rtt "$@"
         ;;
-    all|"")
+    "")
+        do_build pristine
+        do_flash
+        do_rtt client
+        ;;
+    all)
         do_build
         do_flash
+        do_rtt client
         ;;
     -h|--help)
         usage
