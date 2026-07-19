@@ -70,7 +70,8 @@ static const struct smf_state states[] = {
 
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
 /* Read len bytes starting at reg using the proven dual-buffer SPI pattern */
-static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, struct gpio_dt_spec *cs, uint8_t reg, uint8_t *data, uint16_t len) {
+static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, struct gpio_dt_spec *cs, uint8_t reg, uint8_t *data,
+                              uint16_t len) {
     uint8_t tx_buf[2] = {reg | LIS2DTW12_SPI_READ, 0};
     const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 2};
     const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
@@ -233,7 +234,7 @@ static void env_module_thread(void) {
                         .operation = SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA,
                         .slave = 0,
                         /* Take manual CS control — SPIM won't touch it */
-                        .cs = { .gpio = { .port = NULL }, .delay = 0 },
+                        .cs = {.gpio = {.port = NULL}, .delay = 0},
                     },
             },
 #else
