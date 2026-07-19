@@ -43,24 +43,14 @@ enum environmental_module_state {
     STATE_RUNNING,
 };
 
-/* State object.
- * Used to transfer context data between state changes.
- */
+//  Used to transfer context data between state changes.
 struct environmental_state_object {
-    /* This must be first */
-    struct smf_ctx ctx;
-
-    /* Last channel type that a message was received on */
-    const struct zbus_channel *chan;
-
-    /* Buffer for last zbus message */
+    struct smf_ctx ctx;              // must be first
+    const struct zbus_channel *chan; // channel type that a message was received on
     uint8_t msg_buf[MAX_MSG_SIZE];
-
 #if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    /* Pointer to the BME680 sensor device */
     const struct device *const bme680;
 #else
-    /* SPI bus spec for direct LIS2DTW12 temperature reading */
     struct spi_dt_spec lis2dtw12_spi;
 #endif
 };
