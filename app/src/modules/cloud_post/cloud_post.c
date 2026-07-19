@@ -83,6 +83,7 @@ static void cloud_post_send(void) {
         LOG_WRN("Failed to get modem battery voltage: %d", err);
         voltage_mv = -err;
     }
+    LOG_INF("Modem battery voltage: %d mV", voltage_mv);
 
 #if defined(CONFIG_APP_ENVIRONMENTAL)
     snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", imei_buf, voltage_mv, mod.env_data.temperature);

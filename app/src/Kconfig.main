@@ -5,9 +5,33 @@
 #
 menu "App"
 
+choice APP_PERSONALITY
+	prompt "Application personality"
+	default APP_PERSONALITY_REPORTING
+	help
+	  Select the application's behaviour profile.
+	  Each personality implements a different orchestration
+	  strategy using the same set of hardware modules.
+
+config APP_PERSONALITY_REPORTING
+	bool "Cloud Reporting"
+	help
+	  Standard periodic sampling of environmental sensors and
+	  location, followed by cloud posting.  This is the default
+	  behaviour.
+
+config APP_PERSONALITY_LOW_POWER_TEST
+	bool "Low Power Test"
+	help
+	  Minimal-power profile: reads battery voltage, posts to
+	  cloud, disconnects from LTE, and sleeps for a long interval.
+	  No location or environmental sensors.
+
+endchoice
+
 config APP_SAMPLING_INTERVAL_SECONDS
 	int "Sampling interval"
-	default 600
+	default 300
 	help
 	  Interval in seconds that determines how often sensor and location data is
 	  collected.
