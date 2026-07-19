@@ -10,6 +10,9 @@
 #include <zephyr/task_wdt/task_wdt.h>
 #include <zephyr/zbus/zbus.h>
 
+#include <modem/modem_battery.h>
+#include <modem/modem_info.h>
+
 #include "app_common.h"
 #include "cloud_post.h"
 #include "network.h"
@@ -66,11 +69,25 @@ static void cloud_post_send(void) {
     char resp_buf[1024];
     char csv_body[256];
     const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
+    char imei_buf[20] = {0};
+    int voltage_mv = 0;
+
+    err = modem_info_string_get(MODEM_INFO_IMEI, imei_buf, sizeof(imei_buf));
+    if (err) {
+        LOG_WRN("Failed to get IMEI: %d", err);
+        strncpy(imei_buf, "unknown", sizeof(imei_buf) - 1);
+    }
+
+    err = modem_battery_voltage_get(&voltage_mv);
+    if (err) {
+        LOG_WRN("Failed to get modem battery voltage: %d", err);
+        voltage_mv = -err;
+    }
 
 #if defined(CONFIG_APP_ENVIRONMENTAL)
-    snprintf(csv_body, sizeof(csv_body), "%.2f", mod.env_data.temperature);
+    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", imei_buf, voltage_mv, mod.env_data.temperature);
 #else
-    snprintf(csv_body, sizeof(csv_body), "0");
+    snprintf(csv_body, sizeof(csv_body), "%s,%d,0", imei_buf, voltage_mv);
 #endif
 
     LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
@@ -143,6 +160,11 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
         return;
     }
 
+    err = modem_info_init();
+    if (err) {
+        LOG_WRN("modem_info_init failed: %d", err);
+    }
+
     LOG_DBG("Cloud POST module task started");
 
     mod_reset_samples();
@@ -188,8 +210,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
 #endif
 
         /* Samples ready — send if connected, otherwise request connection */
-        if (
-            (!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL)
+        if ((!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL)
 #if defined(CONFIG_APP_ENVIRONMENTAL)
              || mod.env_received
 #endif

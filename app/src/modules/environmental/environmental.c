@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-#include <date_time.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
@@ -126,15 +125,6 @@ static void sample_sensors(struct environmental_state_object *state) {
         .timestamp = k_uptime_get(),
     };
 
-    err = date_time_now(&msg.timestamp);
-    if (err != 0 && err != -ENODATA) {
-        LOG_ERR("date_time_now, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
-
-    LOG_DBG("Temperature: %.2f C", msg.temperature);
-
     err = zbus_chan_pub(&environmental_chan, &msg, PUB_TIMEOUT);
     if (err) {
         LOG_ERR("zbus_chan_pub, error: %d", err);
@@ -227,7 +217,6 @@ static void env_module_thread(void) {
             SEND_FATAL_ERROR();
             return;
         }
-
         err = smf_run_state(SMF_CTX(&environmental_state));
         if (err) {
             LOG_ERR("smf_run_state(), error: %d", err);

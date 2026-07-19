@@ -9,7 +9,7 @@ menuconfig APP_CLOUD_POST
 	depends on REST_CLIENT
 	default y
 	help
-	  Module that collects battery and environmental sensor data and
+	  Module that collects modem battery voltage and sensor data and
 	  sends it as a CSV POST request to a configurable HTTP endpoint.
 
 if APP_CLOUD_POST

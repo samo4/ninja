@@ -6,12 +6,15 @@ https://github.com/samo4/shadowguard
 https://github.com/samo4/shadow_playground
 https://github.com/samo4/ShadowGuardGNSS
 
+This repository is a fork of the [nRF Asset Tracker Template](https://github.com/nrfconnect/Asset-Tracker-Template), adapted with significant trimming of features.
+
 ## Core features / TODO
 
 - [ ] connect to LTE
 - [ ] disconnect from LTE
 - [ ] go to deep sleep (ARMED)
 - [ ] acquire GPS lock
+  - [ ] [A-GPS](https://github.com/nrfconnect/Asset-Tracker-Template/blob/main/app/src/modules/location/location.c)
 - [ ] validate current usage on shadow board < 40uA
 - [ ] measure battery voltage
 - [ ] over the air update (FOTA)
@@ -21,8 +24,6 @@ https://github.com/samo4/ShadowGuardGNSS
 ## Get started
 
 ### Prerequisites
-
-Install the nRF Connect SDK toolchain (v3.4.0 or later):
 
 ```bash
 nrfutil install sdk-manager
@@ -82,23 +83,12 @@ The device will authenticate and connect on the next provisioning attempt (up to
 
 ### Updating modem firmware
 
-If the device fails to connect with `-111` errors and the log shows `Failed to enable connection ID, err 22`, the modem firmware is too old for nRF Cloud's DTLS Connection ID. Download the latest `mfw_nrf9160_*.zip` from [Nordic's nRF9160 page](https://www.nordicsemi.com/Products/nRF9160/Download) and flash with nrfutil:
+Download the latest `mfw_nrf9160_*.zip` from [Nordic's nRF9160 page](https://www.nordicsemi.com/Products/nRF9160/Download).
 
 ```bash
-nrfutil device program --firmware mfw_nrf9160_1.3.7.zip --serial-number 260114597
+nrfutil device list --traits modem,jlink
+nrfutil device program --firmware mfw_nrf9160_1.3.7.zip --serial-number <SERIAL_NUMBER>
 ```
-
-After updating, reboot the device. No application reflash needed.
-
----
-
-## Fork changes
-
-This repository is a fork of the [nRF Asset Tracker Template](https://github.com/nrfconnect/Asset-Tracker-Template), adapted with significant trimming of features.
-
-### Supported hardware
-
-- **Thingy:91** (nRF9160) — original model, not Thingy:91 X
 
 ### Changes from upstream
 

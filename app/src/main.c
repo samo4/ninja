@@ -83,9 +83,12 @@ static enum smf_state_result sampling_run(void *o);
 static void waiting_entry(void *o);
 static enum smf_state_result waiting_run(void *o);
 static void waiting_exit(void *o);
+static enum smf_state_result initial_sample_run(void *o);
 static void rebooting_entry(void *o);
 
 enum app_state {
+    /* First run: publish an initial sample request before waiting for modules */
+    STATE_INITIAL_SAMPLE,
     /* Waiting for module initialization */
     STATE_WAITING_FOR_MODULES_INIT,
     /* Main application is running */
@@ -134,6 +137,8 @@ struct main_state {
 
 /* Construct state table */
 static const struct smf_state states[] = {
+    /* First run: trigger an immediate sample before waiting for anything */
+    [STATE_INITIAL_SAMPLE] = SMF_CREATE_STATE(NULL, initial_sample_run, NULL, NULL, NULL),
     /* Initial state, waiting for modules to initialize */
     [STATE_WAITING_FOR_MODULES_INIT] = SMF_CREATE_STATE(NULL, waiting_for_modules_init_run, NULL, NULL, NULL),
     /* Top-level states */
@@ -278,6 +283,20 @@ static void timer_sample_stop(void) {
 
 /* Zephyr State Machine framework handlers */
 
+/* STATE_INITIAL_SAMPLE — fire first sample on boot */
+static enum smf_state_result initial_sample_run(void *o) {
+    struct main_state *state_object = (struct main_state *)o;
+
+    LOG_INF("Publishing initial sample request");
+    trigger_sampling(state_object);
+
+    /* Transition directly to RUNNING so the normal SMF cascade
+     * (RUNNING → SAMPLING → WAITING) completes and the timer is scheduled.
+     */
+    smf_set_state(SMF_CTX(state_object), &states[STATE_RUNNING]);
+    return SMF_EVENT_HANDLED;
+}
+
 /* STATE_WAITING_FOR_MODULES_INIT */
 static enum smf_state_result waiting_for_modules_init_run(void *o) {
     struct main_state *state_object = (struct main_state *)o;
@@ -317,8 +336,8 @@ static void sampling_entry(void *o) {
 }
 
 static enum smf_state_result sampling_run(void *o) {
-#if defined(CONFIG_APP_LOCATION)
     struct main_state *state_object = (struct main_state *)o;
+#if defined(CONFIG_APP_LOCATION)
     if (state_object->chan == &location_chan) {
         const struct location_msg *msg = (const struct location_msg *)state_object->msg_buf;
 
@@ -328,12 +347,7 @@ static enum smf_state_result sampling_run(void *o) {
         }
     }
 #else
-    /* No location module: transition to waiting state immediately so that the
-     * next sampling timer can be scheduled without waiting for a
-     * LOCATION_SEARCH_DONE that will never come.
-     */
-    struct main_state *state_object = (struct main_state *)o;
-
+    // LOCATION_SEARCH_DONE will never come
     smf_set_state(SMF_CTX(state_object), &states[STATE_WAITING]);
     return SMF_EVENT_HANDLED;
 #endif /* CONFIG_APP_LOCATION */
@@ -399,7 +413,7 @@ int main(void) {
     main_state.sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     main_state.first_sample_pending = true;
 
-    LOG_DBG("Main has started");
+    LOG_INF("Main has started");
 
     task_wdt_id = task_wdt_add(wdt_timeout_ms, task_wdt_callback, (void *)k_current_get());
     if (task_wdt_id < 0) {
@@ -409,14 +423,19 @@ int main(void) {
         return -EFAULT;
     }
 
-    smf_set_initial(SMF_CTX(&main_state), &states[STATE_WAITING_FOR_MODULES_INIT]);
+    smf_set_initial(SMF_CTX(&main_state), &states[STATE_INITIAL_SAMPLE]);
+    err = smf_run_state(SMF_CTX(&main_state));
+    if (err) {
+        LOG_ERR("smf_run_state(), error: %d", err);
+        SEND_FATAL_ERROR();
+        return err;
+    }
 
     while (1) {
         err = task_wdt_feed(task_wdt_id);
         if (err) {
             LOG_ERR("task_wdt_feed, error: %d", err);
             SEND_FATAL_ERROR();
-
             return err;
         }
 
@@ -426,7 +445,6 @@ int main(void) {
         } else if (err) {
             LOG_ERR("zbus_sub_wait_msg, error: %d", err);
             SEND_FATAL_ERROR();
-
             return err;
         }
 
@@ -434,7 +452,6 @@ int main(void) {
         if (err) {
             LOG_ERR("smf_run_state(), error: %d", err);
             SEND_FATAL_ERROR();
-
             return err;
         }
     }
