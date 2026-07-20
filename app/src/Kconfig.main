@@ -29,6 +29,14 @@ config APP_PERSONALITY_LOW_POWER_TEST
 	  provides a modem-off window during which board-level
 	  power consumption can be measured with everything idle.
 
+config APP_PERSONALITY_LOCATION_TEST
+	bool "Location Test"
+	depends on APP_LOCATION
+	help
+	  Request GNSS fix → post to cloud → disconnect LTE →
+	  sleep with modem off → repeat.  Reuses cloud_post for
+	  HTTP.  If no location is found, sends an empty POST.
+
 endchoice
 
 config APP_SAMPLING_INTERVAL_SECONDS

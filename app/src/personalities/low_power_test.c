@@ -130,7 +130,7 @@ static const struct smf_state states[] = {
 static void sampling_entry(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
     lp_state_name = "sampling";
-    LOG_INF("LP: sampling (cycle every %us)", state->sample_interval_sec);
+    LOG_INF("sampling (cycle every %us)", state->sample_interval_sec);
     fire_sample(state);
     lp_state_name = "waiting";
     smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_WAITING]);
@@ -143,14 +143,14 @@ static enum smf_state_result waiting_run(void *o) {
         const struct cloud_post_msg *msg = (const struct cloud_post_msg *)state->msg_buf;
 
         if (msg->type == CLOUD_POST_SEND_DONE) {
-            LOG_INF("LP: cloud POST done (HTTP %d), disconnecting modem now", msg->http_status);
+            LOG_INF("cloud POST (HTTP %d), disconnecting modem now", msg->http_status);
             request_disconnect();
             smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_DISCONNECTING]);
             return SMF_EVENT_HANDLED;
         }
 
         if (msg->type == CLOUD_POST_SEND_FAILED) {
-            LOG_WRN("LP: cloud POST failed (%d), disconnecting anyway", msg->http_status);
+            LOG_WRN("cloud POST failed (%d), disconnecting anyway", msg->http_status);
             request_disconnect();
             smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_DISCONNECTING]);
             return SMF_EVENT_HANDLED;
@@ -158,7 +158,7 @@ static enum smf_state_result waiting_run(void *o) {
     }
 
     if (state->chan == &timer_chan) {
-        LOG_WRN("LP: fallback timeout expired, disconnecting modem");
+        LOG_WRN("fallback timeout expired, disconnecting modem");
         request_disconnect();
         smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_DISCONNECTING]);
         return SMF_EVENT_HANDLED;
@@ -178,7 +178,7 @@ static enum smf_state_result disconnecting_run(void *o) {
     if (state->chan == &network_chan) {
         const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
         if (msg->type == NETWORK_DISCONNECTED) {
-            LOG_INF("LP: modem off, entering sleep");
+            LOG_INF("modem off, entering sleep");
             smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_SLEEPING]);
             return SMF_EVENT_HANDLED;
         }
@@ -190,14 +190,14 @@ static void sleeping_entry(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
     lp_state_name = "sleeping";
     LOG_DBG("%s", __func__);
-    LOG_INF("LP: sleeping with modem off for %us — measure power now", state->sample_interval_sec);
+    LOG_INF("sleeping with modem off for %us — measure power now", state->sample_interval_sec);
     timer_arm(state->sample_interval_sec);
 }
 
 static enum smf_state_result sleeping_run(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
     if (state->chan == &timer_chan) {
-        LOG_INF("LP: sleep expired, starting new cycle");
+        LOG_INF("sleep expired, starting new cycle");
         smf_set_state(SMF_CTX(state), &states[LOW_POWER_STATE_SAMPLING]);
         return SMF_EVENT_HANDLED;
     }
@@ -225,7 +225,7 @@ void low_power_init(struct low_power_state_object *state) {
 void low_power_process(struct low_power_state_object *state) {
     int err = smf_run_state(SMF_CTX(state));
     if (err) {
-        LOG_ERR("LP: smf_run_state(), error: %d", err);
+        LOG_ERR("smf_run_state(), error: %d", err);
         SEND_FATAL_ERROR();
     }
 }

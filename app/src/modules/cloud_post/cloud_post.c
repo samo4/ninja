@@ -10,13 +10,16 @@
 #include <zephyr/task_wdt/task_wdt.h>
 #include <zephyr/zbus/zbus.h>
 
-#include <modem/modem_attest_token.h>
+#include <hw_id.h>
 #include <modem/modem_battery.h>
 #include <modem/modem_info.h>
 
 #include "app_common.h"
 #include "cloud_post.h"
 #include "environmental.h"
+#if defined(CONFIG_APP_LOCATION)
+#include "location.h"
+#endif
 #include "network.h"
 
 LOG_MODULE_REGISTER(cloud_post, CONFIG_APP_CLOUD_POST_LOG_LEVEL);
@@ -26,7 +29,9 @@ ZBUS_CHAN_DEFINE(cloud_post_chan, struct cloud_post_msg, NULL, NULL, ZBUS_OBSERV
 ZBUS_MSG_SUBSCRIBER_DEFINE(cloud_post);
 
 ZBUS_CHAN_ADD_OBS(environmental_chan, cloud_post, 0);
-
+#if defined(CONFIG_APP_LOCATION)
+ZBUS_CHAN_ADD_OBS(location_chan, cloud_post, 0);
+#endif
 ZBUS_CHAN_ADD_OBS(network_chan, cloud_post, 0);
 
 static const int REST_TIMEOUT_MS = 30000;
@@ -36,11 +41,18 @@ static struct {
     bool connect_requested;
     bool env_received;
     struct environmental_msg env_data;
+    bool location_received;
+    double location_latitude;
+    double location_longitude;
+    float location_accuracy;
 } mod;
 
-static struct nrf_device_uuid device_uid;
+static char device_uid[HW_ID_LEN];
 
-static void mod_reset_samples(void) { mod.env_received = false; }
+static void mod_reset_samples(void) {
+    mod.env_received = false;
+    mod.location_received = false;
+}
 
 static void mod_request_connect(void) {
     const struct network_msg msg = {.type = NETWORK_CONNECT};
@@ -68,18 +80,13 @@ static void cloud_post_send(void) {
         LOG_WRN("Failed to get modem battery voltage: %d", err);
         voltage_mv = -err;
     }
-    LOG_INF("Modem battery voltage: %d mV", voltage_mv);
-
-    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", device_uid.str, voltage_mv, mod.env_data.temperature);
-
+    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f,%.6f,%.6f,%.1f", device_uid, voltage_mv, mod.env_data.temperature,
+             mod.location_latitude, mod.location_longitude, (double)mod.location_accuracy);
     LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
             csv_body);
-
     struct rest_client_req_context req = {0};
     struct rest_client_resp_context resp = {0};
-
     rest_client_request_defaults_set(&req);
-
     req.host = CONFIG_APP_CLOUD_POST_HOST;
     req.port = CONFIG_APP_CLOUD_POST_PORT;
     req.url = CONFIG_APP_CLOUD_POST_URL;
@@ -92,22 +99,19 @@ static void cloud_post_send(void) {
     req.resp_buff = resp_buf;
     req.resp_buff_len = sizeof(resp_buf);
     req.timeout_ms = REST_TIMEOUT_MS;
-
     err = rest_client_request(&req, &resp);
     if (err == 0) {
-        LOG_INF("Cloud POST response: HTTP %d (%s), body: %d bytes", resp.http_status_code, resp.http_status_code_str,
-                resp.response_len);
-        LOG_INF("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
+        LOG_INF("Cloud POST response: \x1b[32mHTTP %d (%s)\x1b[0m, body: %d bytes", resp.http_status_code,
+                resp.http_status_code_str, resp.response_len);
         struct cloud_post_msg done_msg = {.type = CLOUD_POST_SEND_DONE, .http_status = resp.http_status_code};
         zbus_chan_pub(&cloud_post_chan, &done_msg, PUB_TIMEOUT);
-        return;
+    } else {
+        LOG_ERR("REST request failed: %d", err);
+        /* Notify subscribers that POST failed */
+        struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = err};
+        zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
     }
-
-    LOG_ERR("REST request failed: %d", err);
-
-    /* Notify subscribers that POST failed */
-    struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = err};
-    zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
+    LOG_DBG("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
 }
 
 static void cloud_post_wdt_callback(int channel_id, void *user_data) {
@@ -118,7 +122,12 @@ static void cloud_post_wdt_callback(int channel_id, void *user_data) {
 static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     const struct zbus_channel *chan;
+#if defined(CONFIG_APP_LOCATION)
+    uint8_t
+        msg_buf[MAX(sizeof(struct environmental_msg), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
+#else
     uint8_t msg_buf[MAX(sizeof(struct environmental_msg), sizeof(struct network_msg))];
+#endif
 
     ARG_UNUSED(arg1);
     ARG_UNUSED(arg2);
@@ -131,13 +140,14 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
         return;
     }
 
+    /* Fetch device UUID — hw_id does not need the modem to be initialized */
     {
-        int ret = modem_attest_token_get_uuids(&device_uid, NULL);
+        int ret = hw_id_get(device_uid, sizeof(device_uid));
         if (ret == 0) {
-            LOG_INF("Device UUID: %s", device_uid.str);
+            LOG_INF("Device UUID: %s", device_uid);
         } else {
             LOG_WRN("Failed to get device UUID: %d", ret);
-            strncpy(device_uid.str, "UUID not found.", sizeof(device_uid.str) - 1);
+            strncpy(device_uid, "error", sizeof(device_uid) - 1);
         }
     }
 
@@ -156,23 +166,30 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
             LOG_ERR("zbus_sub_wait_msg, error: %d", err);
             continue;
         }
-
         if (chan == &network_chan) {
             const struct network_msg *msg = (const struct network_msg *)msg_buf;
-
             if (msg->type == NETWORK_CONNECTED) {
                 LOG_INF("LTE connected");
                 mod.connected = true;
                 mod.connect_requested = false;
-
-                /* Samples will be sent from the logic below when all data is ready */
             } else if (msg->type == NETWORK_DISCONNECTED) {
                 LOG_DBG("LTE disconnected");
                 mod.connected = false;
             }
-        } else if (chan == &environmental_chan) {
+        }
+#if defined(CONFIG_APP_LOCATION)
+        else if (chan == &location_chan) {
+            const struct location_msg *msg = (const struct location_msg *)msg_buf;
+            if (msg->type == LOCATION_GNSS_DATA) {
+                mod.location_received = true;
+                mod.location_latitude = msg->gnss_data.latitude;
+                mod.location_longitude = msg->gnss_data.longitude;
+                mod.location_accuracy = msg->gnss_data.accuracy;
+            }
+        }
+#endif
+        else if (chan == &environmental_chan) {
             const struct environmental_msg *msg = (const struct environmental_msg *)msg_buf;
-
             if (msg->type == ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE) {
                 mod.env_received = true;
                 mod.env_data = *msg;
@@ -180,8 +197,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
             }
         }
 
-        /* Samples ready — send if connected, otherwise request connection */
-        if ((!IS_ENABLED(CONFIG_APP_ENVIRONMENTAL) || mod.env_received)) {
+        if (mod.env_received || mod.location_received) {
             if (mod.connected) {
                 cloud_post_send();
                 mod_reset_samples();

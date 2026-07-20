@@ -1,0 +1,270 @@
+/*
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ *
+ * Location Test personality:
+ *   Request GNSS fix → post to cloud → turn off modem → sleep → repeat.
+ *   Reuses cloud_post for HTTP communication — location data is forwarded
+ *   via the location_chan that cloud_post now also observes.
+ *
+ *   State machine:
+ *     SAMPLING         — fire LOCATION_GNSS_SEARCH_TRIGGER
+ *     WAITING_LOCATION — wait for LOCATION_GNSS_DATA or LOCATION_SEARCH_DONE
+ *     WAITING_CLOUD    — cloud_post handles LTE connect + POST, personality
+ *                        waits for SEND_DONE / SEND_FAILED
+ *     DISCONNECTING    — waiting for NETWORK_DISCONNECTED
+ *     SLEEPING         — modem-off power-measurement window
+ *     → back to SAMPLING
+ */
+
+#include <zephyr/logging/log.h>
+#include <zephyr/smf.h>
+#include <zephyr/sys/reboot.h>
+
+#include "app_common.h"
+#include "cloud_post.h"
+#include "location.h"
+#include "location_test.h"
+#include "network.h"
+
+LOG_MODULE_REGISTER(location_test, CONFIG_APP_LOG_LEVEL);
+
+/* Fallback timeout if cloud_post never publishes SEND_DONE/SEND_FAILED. */
+#define CLOUD_POST_FALLBACK_TIMEOUT_SECONDS 600
+
+/* Define the timer channel */
+ZBUS_CHAN_DEFINE(timer_chan, struct location_test_timer_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY, ZBUS_MSG_INIT(0));
+
+/* ── Timer work ─────────────────────────────────────────────────── */
+
+static void timer_expired_fn(struct k_work *work);
+
+static K_WORK_DELAYABLE_DEFINE(sample_timer_work, timer_expired_fn);
+
+static void timer_expired_fn(struct k_work *work) {
+    ARG_UNUSED(work);
+    const struct location_test_timer_msg msg = {.type = LOCATION_TEST_TIMER_EXPIRED};
+    int err = zbus_chan_pub(&timer_chan, &msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish timer expired, error: %d", err);
+        SEND_FATAL_ERROR();
+    }
+}
+
+static void timer_arm(uint32_t delay_sec) {
+    int err = k_work_reschedule(&sample_timer_work, K_SECONDS(delay_sec));
+    if (err < 0) {
+        LOG_ERR("k_work_reschedule sample_timer_work, error: %d", err);
+        SEND_FATAL_ERROR();
+    }
+}
+
+/* ── RTT Heartbeat ──────────────────────────────────────────────── */
+
+#define HEARTBEAT_INTERVAL_SEC 60
+
+static const char *lt_state_name;
+
+static void heartbeat_fn(struct k_work *work);
+
+static K_WORK_DELAYABLE_DEFINE(heartbeat_work, heartbeat_fn);
+
+static void heartbeat_fn(struct k_work *work) {
+    ARG_UNUSED(work);
+    LOG_INF("♥ %s", lt_state_name);
+    k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC));
+}
+
+static void heartbeat_start(void) { k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC)); }
+
+/* ── Helpers ────────────────────────────────────────────────────── */
+
+static void fire_location_search(void) {
+    const struct location_msg req = {
+        .type = LOCATION_GNSS_SEARCH_TRIGGER,
+    };
+
+    int err = zbus_chan_pub(&location_chan, &req, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish LOCATION_GNSS_SEARCH_TRIGGER, error: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
+}
+
+static void request_disconnect(void) {
+    const struct network_msg msg = {.type = NETWORK_DISCONNECT};
+
+    int err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish NETWORK_DISCONNECT, error: %d", err);
+        SEND_FATAL_ERROR();
+    }
+}
+
+/* ── SMF states ─────────────────────────────────────────────────── */
+
+static void sampling_entry(void *o);
+static enum smf_state_result waiting_location_run(void *o);
+static enum smf_state_result waiting_cloud_run(void *o);
+static void disconnecting_entry(void *o);
+static enum smf_state_result disconnecting_run(void *o);
+static void sleeping_entry(void *o);
+static enum smf_state_result sleeping_run(void *o);
+static void rebooting_entry(void *o);
+
+static const struct smf_state states[] = {
+    [LOCATION_TEST_STATE_SAMPLING] = SMF_CREATE_STATE(sampling_entry, NULL, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_WAITING_LOCATION] = SMF_CREATE_STATE(NULL, waiting_location_run, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_WAITING_CLOUD] = SMF_CREATE_STATE(NULL, waiting_cloud_run, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_DISCONNECTING] = SMF_CREATE_STATE(disconnecting_entry, disconnecting_run, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_SLEEPING] = SMF_CREATE_STATE(sleeping_entry, sleeping_run, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_REBOOTING] = SMF_CREATE_STATE(rebooting_entry, NULL, NULL, NULL, NULL),
+};
+
+static void sampling_entry(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+    lt_state_name = "sampling";
+    LOG_INF("LT: sampling (cycle every %us)", state->sample_interval_sec);
+    state->location_received = false;
+    fire_location_search();
+    /* Arm a fallback timer in case location never comes back (2 min default + margin). */
+    timer_arm(150);
+    lt_state_name = "waiting_location";
+    smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_LOCATION]);
+}
+
+static enum smf_state_result waiting_location_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+
+    if (state->chan == &location_chan) {
+        const struct location_msg *msg = (const struct location_msg *)state->msg_buf;
+
+        if (msg->type == LOCATION_GNSS_DATA) {
+            LOG_INF("LT: GNSS fix received (lat=%.6f, lon=%.6f, acc=%.1f)",
+                    msg->gnss_data.latitude, msg->gnss_data.longitude, msg->gnss_data.accuracy);
+            state->location_received = true;
+            return SMF_EVENT_HANDLED;
+        }
+
+        if (msg->type == LOCATION_SEARCH_DONE) {
+            if (state->location_received) {
+                LOG_INF("LT: location search done — data was sent to cloud_post");
+            } else {
+                LOG_WRN("LT: location search done — no fix obtained, sending empty");
+            }
+            /* cloud_post will pick up the data and send; move to wait for its result. */
+            lt_state_name = "waiting_cloud";
+            timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
+            smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
+            return SMF_EVENT_HANDLED;
+        }
+    }
+
+    if (state->chan == &timer_chan) {
+        LOG_WRN("LT: location timeout — no fix obtained, sending empty");
+        /* Even on timeout, cloud_post should have whatever data we got. */
+        lt_state_name = "waiting_cloud";
+        timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
+        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
+        return SMF_EVENT_HANDLED;
+    }
+
+    return SMF_EVENT_PROPAGATE;
+}
+
+static enum smf_state_result waiting_cloud_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+
+    if (state->chan == &cloud_post_chan) {
+        const struct cloud_post_msg *msg = (const struct cloud_post_msg *)state->msg_buf;
+
+        if (msg->type == CLOUD_POST_SEND_DONE) {
+            LOG_INF("LT: cloud POST done (HTTP %d), disconnecting modem now", msg->http_status);
+            request_disconnect();
+            smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
+            return SMF_EVENT_HANDLED;
+        }
+
+        if (msg->type == CLOUD_POST_SEND_FAILED) {
+            LOG_WRN("LT: cloud POST failed (%d), disconnecting anyway", msg->http_status);
+            request_disconnect();
+            smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
+            return SMF_EVENT_HANDLED;
+        }
+    }
+
+    if (state->chan == &timer_chan) {
+        LOG_WRN("LT: fallback timeout expired, disconnecting modem");
+        request_disconnect();
+        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
+        return SMF_EVENT_HANDLED;
+    }
+
+    return SMF_EVENT_PROPAGATE;
+}
+
+static void disconnecting_entry(void *o) {
+    ARG_UNUSED(o);
+    lt_state_name = "disconnecting";
+    LOG_DBG("%s", __func__);
+}
+
+static enum smf_state_result disconnecting_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+    if (state->chan == &network_chan) {
+        const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
+        if (msg->type == NETWORK_DISCONNECTED) {
+            LOG_INF("LT: modem off, entering sleep");
+            smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SLEEPING]);
+            return SMF_EVENT_HANDLED;
+        }
+    }
+    return SMF_EVENT_PROPAGATE;
+}
+
+static void sleeping_entry(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+    lt_state_name = "sleeping";
+    LOG_DBG("%s", __func__);
+    LOG_INF("LT: sleeping with modem off for %us — measure power now", state->sample_interval_sec);
+    timer_arm(state->sample_interval_sec);
+}
+
+static enum smf_state_result sleeping_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+    if (state->chan == &timer_chan) {
+        LOG_INF("LT: sleep expired, starting new cycle");
+        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+        return SMF_EVENT_HANDLED;
+    }
+    return SMF_EVENT_PROPAGATE;
+}
+
+static void rebooting_entry(void *o) {
+    ARG_UNUSED(o);
+    lt_state_name = "rebooting";
+    LOG_DBG("%s", __func__);
+    LOG_PANIC();
+    k_sleep(K_SECONDS(10));
+    sys_reboot(SYS_REBOOT_COLD);
+}
+
+/* ── Public API ─────────────────────────────────────────────────── */
+
+void location_test_init(struct location_test_state_object *state) {
+    state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
+    state->location_received = false;
+    lt_state_name = "init";
+    heartbeat_start();
+    smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+}
+
+void location_test_process(struct location_test_state_object *state) {
+    int err = smf_run_state(SMF_CTX(state));
+    if (err) {
+        LOG_ERR("LT: smf_run_state(), error: %d", err);
+        SEND_FATAL_ERROR();
+    }
+}

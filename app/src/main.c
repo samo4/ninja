@@ -50,8 +50,17 @@
 #define personality_init low_power_init
 #define personality_process low_power_process
 
+#elif defined(CONFIG_APP_PERSONALITY_LOCATION_TEST)
+#include "personalities/location_test.h"
+
+#define PERSONALITY_CHANNEL_LIST LOCATION_TEST_CHANNEL_LIST
+#define PERSONALITY_MAX_MSG_SIZE LOCATION_TEST_MAX_MSG_SIZE
+#define PERSONALITY_STATE struct location_test_state_object
+#define personality_init location_test_init
+#define personality_process location_test_process
+
 #else
-#error "No personality selected. Set CONFIG_APP_PERSONALITY_REPORTING or CONFIG_APP_PERSONALITY_LOW_POWER_TEST."
+#error "No personality selected. Set CONFIG_APP_PERSONALITY_REPORTING, CONFIG_APP_PERSONALITY_LOW_POWER_TEST, or CONFIG_APP_PERSONALITY_LOCATION_TEST."
 #endif
 
 LOG_MODULE_REGISTER(main, 4);
