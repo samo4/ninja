@@ -25,6 +25,11 @@
 
 LOG_MODULE_REGISTER(reporting, CONFIG_APP_LOG_LEVEL);
 
+/* Personality state string (for main heartbeat). */
+static const char *rpt_state_str;
+
+const char *personality_state_str(void) { return rpt_state_str ? rpt_state_str : "?"; }
+
 ZBUS_CHAN_DEFINE(timer_chan, struct timer_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY, ZBUS_MSG_INIT(0));
 
 /* ── Timer work ─────────────────────────────────────────────────── */
@@ -101,8 +106,10 @@ static const struct smf_state states[] = {
 
 static void sampling_entry(void *o) {
     struct reporting_state *state = (struct reporting_state *)o;
+    rpt_state_str = "sampling";
     LOG_INF("sampling (every %us)", state->sample_interval_sec);
     fire_sample(state);
+    rpt_state_str = "waiting";
     smf_set_state(SMF_CTX(state), &states[STATE_WAITING]);
 }
 
@@ -120,6 +127,7 @@ static enum smf_state_result waiting_run(void *o) {
 
 static void rebooting_entry(void *o) {
     ARG_UNUSED(o);
+    rpt_state_str = "rebooting";
     LOG_DBG("%s", __func__);
 
     LOG_PANIC();

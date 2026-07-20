@@ -22,6 +22,7 @@
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
+#include "heartbeat.h"
 
 /* ==================================================================
  * Personality selection — exactly one is compiled at build time.
@@ -72,7 +73,8 @@ ZBUS_MSG_SUBSCRIBER_DEFINE(main_subscriber);
 
 PERSONALITY_CHANNEL_LIST(ADD_OBSERVERS)
 
-// Static helper function
+/* ── Watchdog ───────────────────────────────────────────────────── */
+
 static void task_wdt_callback(int channel_id, void *user_data) {
     LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
     SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
@@ -89,6 +91,7 @@ int main(void) {
     LOG_INF("Main has started");
 
     personality_init(&state);
+    heartbeat_start();
 
     task_wdt_id = task_wdt_add(wdt_timeout_ms, task_wdt_callback, (void *)k_current_get());
     if (task_wdt_id < 0) {

@@ -11,7 +11,7 @@ project("Ninja")
 
 zephyr_include_directories(src/common)
 
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE src/main.c src/common/module_state.c src/common/heartbeat.c)
 
 add_subdirectory(src/personalities)
 add_subdirectory(src/modules/network)

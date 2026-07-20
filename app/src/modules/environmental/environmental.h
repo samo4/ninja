@@ -48,6 +48,13 @@ struct environmental_msg {
     int64_t timestamp;
 };
 
+/**
+ * @brief Get the current FSM state name of the environmental module.
+ *
+ * @return Pointer to a statically allocated state name string.
+ */
+const char *environmental_state_str(void);
+
 #ifdef __cplusplus
 }
 #endif

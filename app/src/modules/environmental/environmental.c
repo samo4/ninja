@@ -14,6 +14,7 @@
 
 #include "app_common.h"
 #include "environmental.h"
+#include "module_state.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(environmental, CONFIG_APP_ENVIRONMENTAL_LOG_LEVEL);
@@ -32,6 +33,9 @@ ZBUS_CHAN_ADD_OBS(environmental_chan, environmental, 0);
 BUILD_ASSERT(CONFIG_APP_ENVIRONMENTAL_WATCHDOG_TIMEOUT_SECONDS >
                  CONFIG_APP_ENVIRONMENTAL_MSG_PROCESSING_TIMEOUT_SECONDS,
              "Watchdog timeout must be greater than maximum message processing time");
+
+// Current FSM state name (for heartbeat reporting).
+static const char *env_state_str;
 
 // State machine
 
@@ -179,6 +183,7 @@ static void env_wdt_callback(int channel_id, void *user_data) {
 // State handlers
 
 static enum smf_state_result state_running_run(void *obj) {
+    env_state_str = "run";
     struct environmental_state_object *state_object = obj;
     if (&environmental_chan == state_object->chan) {
         const struct environmental_msg *msg = (const struct environmental_msg *)state_object->msg_buf;
@@ -260,3 +265,8 @@ static void env_module_thread(void) {
 
 K_THREAD_DEFINE(environmental_module_thread_id, CONFIG_APP_ENVIRONMENTAL_THREAD_STACK_SIZE, env_module_thread, NULL,
                 NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+
+const char *environmental_state_str(void)
+{
+	return env_state_str ? env_state_str : "?";
+}

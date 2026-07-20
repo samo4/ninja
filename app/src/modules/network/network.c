@@ -13,11 +13,15 @@
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
+#include "module_state.h"
 #include "modem/lte_lc.h"
 #include "modem/modem_info.h"
 #include "network.h"
 
 LOG_MODULE_REGISTER(network, CONFIG_APP_NETWORK_LOG_LEVEL);
+
+/* Current FSM state name (for heartbeat reporting). */
+static const char *net_state_str;
 
 BUILD_ASSERT(CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS > CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS,
              "Watchdog timeout must be greater than maximum message processing time");
@@ -267,6 +271,7 @@ static int network_disconnect(void) {
 
 static void state_running_entry(void *obj) {
     ARG_UNUSED(obj);
+    net_state_str = "running";
     LOG_DBG("state_running_entry");
     int err = nrf_modem_lib_init();
     if (err) {
@@ -314,6 +319,7 @@ static enum smf_state_result state_running_run(void *obj) {
 
 static void state_disconnected_entry(void *obj) {
     ARG_UNUSED(obj);
+    net_state_str = "disconnected";
     LOG_DBG("->disconnected");
 }
 
@@ -336,6 +342,7 @@ static enum smf_state_result state_disconnected_run(void *obj) {
 
 static void state_disconnected_searching_entry(void *obj) {
     ARG_UNUSED(obj);
+    net_state_str = "searching";
     LOG_DBG("calling lte_lc_connect_async");
     int err = lte_lc_connect_async(lte_lc_evt_handler);
     if (err) {
@@ -371,6 +378,7 @@ static enum smf_state_result state_disconnected_searching_run(void *obj) {
 
 static enum smf_state_result state_disconnected_idle_run(void *obj) {
     int err;
+    net_state_str = "idle";
     struct network_state_object const *state_object = obj;
     if (&network_chan == state_object->chan) {
         const struct network_msg *msg = (const struct network_msg *)state_object->msg_buf;
@@ -410,6 +418,7 @@ static enum smf_state_result state_disconnected_idle_run(void *obj) {
 
 static void state_connected_entry(void *obj) {
     ARG_UNUSED(obj);
+    net_state_str = "connected";
     LOG_DBG("state_connected_entry");
 }
 
@@ -427,6 +436,7 @@ static enum smf_state_result state_connected_run(void *obj) {
 
 static void state_disconnecting_entry(void *obj) {
     ARG_UNUSED(obj);
+    net_state_str = "disconnecting";
     LOG_DBG("state_disconnecting_entry");
     int err = network_disconnect();
     if (err) {
@@ -498,3 +508,8 @@ static void network_module_thread(void) {
 
 K_THREAD_DEFINE(network_module_thread_id, CONFIG_APP_NETWORK_THREAD_STACK_SIZE, network_module_thread, NULL, NULL, NULL,
                 K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+
+const char *network_state_str(void)
+{
+	return net_state_str ? net_state_str : "?";
+}

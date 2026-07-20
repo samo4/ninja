@@ -134,6 +134,12 @@ struct network_msg {
 	};
 };
 
+/**
+ * @brief Get the current FSM state name of the network module.
+ *
+ * @return Pointer to a statically allocated state name string.
+ */
+const char *network_state_str(void);
 
 #ifdef __cplusplus
 }

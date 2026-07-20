@@ -60,23 +60,11 @@ static void timer_arm(uint32_t delay_sec) {
     }
 }
 
-/* ── RTT Heartbeat ──────────────────────────────────────────────── */
-
-#define HEARTBEAT_INTERVAL_SEC 60
+/* ── Personality state string (for main heartbeat) ─────────────── */
 
 static const char *lt_state_name;
 
-static void heartbeat_fn(struct k_work *work);
-
-static K_WORK_DELAYABLE_DEFINE(heartbeat_work, heartbeat_fn);
-
-static void heartbeat_fn(struct k_work *work) {
-    ARG_UNUSED(work);
-    LOG_INF("♥ %s", lt_state_name);
-    k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC));
-}
-
-static void heartbeat_start(void) { k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC)); }
+const char *personality_state_str(void) { return lt_state_name ? lt_state_name : "?"; }
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
@@ -301,7 +289,6 @@ void location_test_init(struct location_test_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     state->location_received = false;
     lt_state_name = "waiting_module";
-    heartbeat_start();
     smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_MODULE]);
 }
 

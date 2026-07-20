@@ -61,23 +61,11 @@ static void timer_arm(uint32_t delay_sec) {
     }
 }
 
-/* ── RTT Heartbeat ──────────────────────────────────────────────── */
-
-#define HEARTBEAT_INTERVAL_SEC 60
+/* ── Personality state string (for main heartbeat) ─────────────── */
 
 static const char *lp_state_name;
 
-static void heartbeat_fn(struct k_work *work);
-
-static K_WORK_DELAYABLE_DEFINE(heartbeat_work, heartbeat_fn);
-
-static void heartbeat_fn(struct k_work *work) {
-    ARG_UNUSED(work);
-    LOG_INF("♥ %s", lp_state_name);
-    k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC));
-}
-
-static void heartbeat_start(void) { k_work_reschedule(&heartbeat_work, K_SECONDS(HEARTBEAT_INTERVAL_SEC)); }
+const char *personality_state_str(void) { return lp_state_name ? lp_state_name : "?"; }
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
@@ -218,7 +206,6 @@ static void rebooting_entry(void *o) {
 void low_power_init(struct low_power_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     lp_state_name = "init";
-    heartbeat_start();
     smf_set_initial(SMF_CTX(state), &states[LOW_POWER_STATE_SAMPLING]);
 }
 

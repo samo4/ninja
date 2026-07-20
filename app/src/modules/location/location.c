@@ -12,6 +12,7 @@
 #include "app_common.h"
 #include "location.h"
 #include "location_helper.h"
+#include "module_state.h"
 #include "modem/lte_lc.h"
 
 LOG_MODULE_REGISTER(location_module, CONFIG_APP_LOCATION_LOG_LEVEL);
@@ -72,6 +73,9 @@ static void on_cfun(int mode, void *ctx) {
         }
     }
 }
+
+/* Current FSM state name (for heartbeat reporting). */
+static const char *loc_state_str;
 
 /* State machine */
 
@@ -171,6 +175,7 @@ static void message_send(enum location_msg_type msg_type) {
 /* State handlers */
 
 static enum smf_state_result state_waiting_for_cfun_run(void *obj) {
+    loc_state_str = "wait_cfun";
     struct location_state_object *state_object = obj;
 
     if (state_object->chan == &priv_location_chan) {
@@ -189,6 +194,7 @@ static enum smf_state_result state_waiting_for_cfun_run(void *obj) {
 
 static void state_running_entry(void *obj) {
     ARG_UNUSED(obj);
+    loc_state_str = "running";
     LOG_DBG("%s", __func__);
     int err = location_init(location_event_handler);
     if (err) {
@@ -208,6 +214,7 @@ static void state_running_entry(void *obj) {
 
 static void state_location_search_inactive_entry(void *obj) {
     ARG_UNUSED(obj);
+    loc_state_str = "inactive";
     LOG_DBG("%s", __func__);
 }
 
@@ -261,6 +268,7 @@ static enum smf_state_result state_location_search_inactive_run(void *obj) {
 
 static void state_location_search_active_entry(void *obj) {
     ARG_UNUSED(obj);
+    loc_state_str = "searching";
     LOG_DBG("%s", __func__);
 }
 
@@ -457,3 +465,8 @@ static void location_module_thread(void) {
 
 K_THREAD_DEFINE(location_module_thread_id, CONFIG_APP_LOCATION_THREAD_STACK_SIZE, location_module_thread, NULL, NULL,
                 NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+
+const char *location_state_str(void)
+{
+	return loc_state_str ? loc_state_str : "?";
+}

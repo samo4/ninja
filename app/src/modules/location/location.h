@@ -208,6 +208,13 @@ struct location_msg {
     int64_t timestamp;
 };
 
+/**
+ * @brief Get the current FSM state name of the location module.
+ *
+ * @return Pointer to a statically allocated state name string.
+ */
+const char *location_state_str(void);
+
 #ifdef __cplusplus
 }
 #endif
