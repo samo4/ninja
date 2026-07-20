@@ -186,6 +186,12 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 mod.location_longitude = msg->gnss_data.longitude;
                 mod.location_accuracy = msg->gnss_data.accuracy;
             }
+            /* LOCATION_SEARCH_DONE always follows a search — trigger send
+             * even if no fix was obtained (location fields will be 0).
+             */
+            if (msg->type == LOCATION_SEARCH_DONE) {
+                mod.location_received = true;
+            }
         }
 #endif
         else if (chan == &environmental_chan) {

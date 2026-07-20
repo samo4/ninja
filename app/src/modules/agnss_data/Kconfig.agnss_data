@@ -56,7 +56,7 @@ config APP_AGNSS_DATA_BUFFER_SIZE
 
 config APP_AGNSS_DATA_THREAD_STACK_SIZE
 	int "Thread stack size"
-	default 4096
+	default 8192
 	help
 	  Stack size for the A-GNSS data module thread.
 

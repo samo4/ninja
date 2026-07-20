@@ -105,6 +105,7 @@ static void request_disconnect(void) {
 
 /* ── SMF states ─────────────────────────────────────────────────── */
 
+static enum smf_state_result waiting_module_run(void *o);
 static void sampling_entry(void *o);
 static enum smf_state_result waiting_location_run(void *o);
 static enum smf_state_result waiting_cloud_run(void *o);
@@ -115,6 +116,7 @@ static enum smf_state_result sleeping_run(void *o);
 static void rebooting_entry(void *o);
 
 static const struct smf_state states[] = {
+    [LOCATION_TEST_STATE_WAITING_MODULE] = SMF_CREATE_STATE(NULL, waiting_module_run, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_SAMPLING] = SMF_CREATE_STATE(sampling_entry, NULL, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_WAITING_LOCATION] = SMF_CREATE_STATE(NULL, waiting_location_run, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_WAITING_CLOUD] = SMF_CREATE_STATE(NULL, waiting_cloud_run, NULL, NULL, NULL),
@@ -223,7 +225,49 @@ static enum smf_state_result disconnecting_run(void *o) {
     }
     return SMF_EVENT_PROPAGATE;
 }
+static bool net_connect_requested;
+static bool location_ready;
+static bool lte_ready;
 
+static enum smf_state_result waiting_module_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+
+    /* Request network connect to trigger modem init and CFUN callback,
+     * which the location module needs to initialize.
+     */
+    if (!net_connect_requested) {
+        const struct network_msg msg = {.type = NETWORK_CONNECT};
+        zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
+        net_connect_requested = true;
+        LOG_INF("LT: requesting network connect for modem init");
+    }
+
+    if (state->chan == &location_chan) {
+        const struct location_msg *msg = (const struct location_msg *)state->msg_buf;
+        if (msg->type == LOCATION_MODULE_READY) {
+            LOG_INF("LT: location module ready");
+            location_ready = true;
+        }
+    }
+
+    if (state->chan == &network_chan) {
+        const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
+        if (msg->type == NETWORK_CONNECTED) {
+            LOG_INF("LT: LTE connected");
+            lte_ready = true;
+        }
+    }
+
+    /* Wait for both location module and LTE before starting search,
+     * so A-GNSS data can be fetched immediately when requested. */
+    if (location_ready && lte_ready) {
+        LOG_INF("LT: both ready, starting first search");
+        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+        return SMF_EVENT_HANDLED;
+    }
+
+    return SMF_EVENT_PROPAGATE;
+}
 static void sleeping_entry(void *o) {
     struct location_test_state_object *state = (struct location_test_state_object *)o;
     lt_state_name = "sleeping";
@@ -256,9 +300,9 @@ static void rebooting_entry(void *o) {
 void location_test_init(struct location_test_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     state->location_received = false;
-    lt_state_name = "init";
+    lt_state_name = "waiting_module";
     heartbeat_start();
-    smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+    smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_MODULE]);
 }
 
 void location_test_process(struct location_test_state_object *state) {

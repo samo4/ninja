@@ -327,7 +327,7 @@ static void apply_gnss_time(const struct nrf_modem_gnss_pvt_data_frame *pvt_data
         .tm_sec = pvt_data->datetime.seconds,
     };
 
-    // date_time_set(&gnss_time);
+    date_time_set(&gnss_time);
 }
 #endif /* CONFIG_LOCATION_METHOD_GNSS */
 

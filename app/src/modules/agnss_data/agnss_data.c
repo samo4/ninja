@@ -94,7 +94,7 @@ static void publish_result(enum agnss_data_msg_type type, int http_status) {
  */
 static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_req) {
     int err;
-    char resp_buf[AGNSS_DATA_BUF_SIZE];
+    static char resp_buf[AGNSS_DATA_BUF_SIZE];
 
     /*
      * Serialise the A-GNSS request parameters into a JSON payload that
@@ -103,19 +103,29 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
      * location_agnss_data_process() expects).
      */
     char request_body[512];
-    int body_len = snprintf(request_body, sizeof(request_body),
-                            "{"
-                            "\"data_flags\":%u,"
-                            "\"system_count\":%u"
-                            "}",
-                            (unsigned int)agnss_req->data_flags, (unsigned int)agnss_req->system_count);
+    int body_len = snprintf(request_body, sizeof(request_body), "{");
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
+                         "\"data_flags\":%u,", (unsigned int)agnss_req->data_flags);
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
+                         "\"system_count\":%u,\"system\":[", (unsigned int)agnss_req->system_count);
+
+    for (uint8_t i = 0; i < agnss_req->system_count && i < NRF_MODEM_GNSS_MAX_SYSTEMS; i++) {
+        if (i > 0) {
+            body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",");
+        }
+        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
+                             "{\"system_id\":%u,\"sv_mask_ephe\":%llu,\"sv_mask_alm\":%llu}",
+                             (unsigned int)agnss_req->system[i].system_id,
+                             (unsigned long long)agnss_req->system[i].sv_mask_ephe,
+                             (unsigned long long)agnss_req->system[i].sv_mask_alm);
+    }
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "]}");
 
     if (body_len < 0 || body_len >= (int)sizeof(request_body)) {
         LOG_ERR("Failed to serialise A-GNSS request");
         return -ENOMEM;
     }
 
-    /* Prepare the REST request. */
     const char *header_fields[] = {"Content-Type: application/json\r\n", NULL};
 
     struct rest_client_req_context req = {0};
