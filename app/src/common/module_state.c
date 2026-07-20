@@ -22,28 +22,27 @@ __attribute__((weak)) const char *environmental_state_str(void) { return "?"; }
 
 /* ── State report formatting ────────────────────────────────────── */
 
-int state_report_format(char *buf, size_t len)
-{
-	int off = 0;
+int state_report_format(char *buf, size_t len) {
+    int off = 0;
 
-	off += snprintf(buf + off, len - off, "\u2665");
-	off += snprintf(buf + off, len - off, " per:%s", personality_state_str());
+    off += snprintf(buf + off, len - off, "\u2665");
+    off += snprintf(buf + off, len - off, " per:%s", personality_state_str());
 
-	/* Append each module that deviates from the default "?" */
-	const char *net = network_state_str();
-	if (strcmp(net, "?") != 0) {
-		off += snprintf(buf + off, len - off, " net:%s", net);
-	}
+    /* Append each module that deviates from the default "?" */
+    const char *net = network_state_str();
+    if (strcmp(net, "?") != 0) {
+        off += snprintf(buf + off, len - off, " net:%s", net);
+    }
 
-	const char *loc = location_state_str();
-	if (strcmp(loc, "?") != 0) {
-		off += snprintf(buf + off, len - off, " loc:%s", loc);
-	}
+    const char *loc = location_state_str();
+    if (strcmp(loc, "?") != 0) {
+        off += snprintf(buf + off, len - off, " loc:%s", loc);
+    }
 
-	const char *env = environmental_state_str();
-	if (strcmp(env, "?") != 0) {
-		off += snprintf(buf + off, len - off, " env:%s", env);
-	}
+    const char *env = environmental_state_str();
+    if (strcmp(env, "?") != 0) {
+        off += snprintf(buf + off, len - off, " env:%s", env);
+    }
 
-	return off;
+    return off;
 }

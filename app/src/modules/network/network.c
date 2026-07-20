@@ -13,9 +13,9 @@
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
-#include "module_state.h"
 #include "modem/lte_lc.h"
 #include "modem/modem_info.h"
+#include "module_state.h"
 #include "network.h"
 
 LOG_MODULE_REGISTER(network, CONFIG_APP_NETWORK_LOG_LEVEL);
@@ -509,7 +509,4 @@ static void network_module_thread(void) {
 K_THREAD_DEFINE(network_module_thread_id, CONFIG_APP_NETWORK_THREAD_STACK_SIZE, network_module_thread, NULL, NULL, NULL,
                 K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
-const char *network_state_str(void)
-{
-	return net_state_str ? net_state_str : "?";
-}
+const char *network_state_str(void) { return net_state_str ? net_state_str : "?"; }

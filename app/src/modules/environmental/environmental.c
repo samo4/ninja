@@ -266,7 +266,4 @@ static void env_module_thread(void) {
 K_THREAD_DEFINE(environmental_module_thread_id, CONFIG_APP_ENVIRONMENTAL_THREAD_STACK_SIZE, env_module_thread, NULL,
                 NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
-const char *environmental_state_str(void)
-{
-	return env_state_str ? env_state_str : "?";
-}
+const char *environmental_state_str(void) { return env_state_str ? env_state_str : "?"; }

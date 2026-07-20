@@ -12,8 +12,8 @@
 #include "app_common.h"
 #include "location.h"
 #include "location_helper.h"
-#include "module_state.h"
 #include "modem/lte_lc.h"
+#include "module_state.h"
 
 LOG_MODULE_REGISTER(location_module, CONFIG_APP_LOCATION_LOG_LEVEL);
 
@@ -466,7 +466,4 @@ static void location_module_thread(void) {
 K_THREAD_DEFINE(location_module_thread_id, CONFIG_APP_LOCATION_THREAD_STACK_SIZE, location_module_thread, NULL, NULL,
                 NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
-const char *location_state_str(void)
-{
-	return loc_state_str ? loc_state_str : "?";
-}
+const char *location_state_str(void) { return loc_state_str ? loc_state_str : "?"; }
