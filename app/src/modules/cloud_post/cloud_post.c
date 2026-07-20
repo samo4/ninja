@@ -10,6 +10,7 @@
 #include <zephyr/task_wdt/task_wdt.h>
 #include <zephyr/zbus/zbus.h>
 
+#include <modem/modem_attest_token.h>
 #include <modem/modem_battery.h>
 #include <modem/modem_info.h>
 
@@ -37,6 +38,8 @@ static struct {
     struct environmental_msg env_data;
 } mod;
 
+static struct nrf_device_uuid device_uid;
+
 static void mod_reset_samples(void) { mod.env_received = false; }
 
 static void mod_request_connect(void) {
@@ -58,11 +61,7 @@ static void cloud_post_send(void) {
     char resp_buf[1024];
     char csv_body[256];
     const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
-    char imei_buf[32] = {0};
     int voltage_mv = 0;
-
-    // no imei :-(
-    strncpy(imei_buf, "xxx", sizeof(imei_buf) - 1);
 
     int err = modem_battery_voltage_get(&voltage_mv);
     if (err) {
@@ -71,7 +70,7 @@ static void cloud_post_send(void) {
     }
     LOG_INF("Modem battery voltage: %d mV", voltage_mv);
 
-    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", imei_buf, voltage_mv, mod.env_data.temperature);
+    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f", device_uid.str, voltage_mv, mod.env_data.temperature);
 
     LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
             csv_body);
@@ -118,7 +117,6 @@ static void cloud_post_wdt_callback(int channel_id, void *user_data) {
 
 static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
-    int task_wdt_id;
     const struct zbus_channel *chan;
     uint8_t msg_buf[MAX(sizeof(struct environmental_msg), sizeof(struct network_msg))];
 
@@ -126,14 +124,22 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
 
-    task_wdt_id = task_wdt_add(REST_TIMEOUT_MS + 60000, cloud_post_wdt_callback, (void *)k_current_get());
+    int task_wdt_id = task_wdt_add(REST_TIMEOUT_MS + 60000, cloud_post_wdt_callback, (void *)k_current_get());
     if (task_wdt_id < 0) {
         LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
         SEND_FATAL_ERROR();
         return;
     }
 
-    LOG_DBG("Cloud POST module task started");
+    {
+        int ret = modem_attest_token_get_uuids(&device_uid, NULL);
+        if (ret == 0) {
+            LOG_INF("Device UUID: %s", device_uid.str);
+        } else {
+            LOG_WRN("Failed to get device UUID: %d", ret);
+            strncpy(device_uid.str, "UUID not found.", sizeof(device_uid.str) - 1);
+        }
+    }
 
     mod_reset_samples();
 
