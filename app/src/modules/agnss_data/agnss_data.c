@@ -11,6 +11,7 @@
 #include "app_common.h"
 #include "location.h"
 #include "network.h"
+#include "utils.h"
 
 LOG_MODULE_REGISTER(agnss_data, CONFIG_APP_AGNSS_DATA_LOG_LEVEL);
 
@@ -128,9 +129,11 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
 
     const char *header_fields[] = {"Content-Type: application/json\r\n", NULL};
 
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
+            request_body);
+
     struct rest_client_req_context req = {0};
     struct rest_client_resp_context resp = {0};
-
     rest_client_request_defaults_set(&req);
 
     req.host = CONFIG_APP_AGNSS_DATA_HOST;
@@ -157,6 +160,7 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
 
     if (resp.http_status_code != 200) {
         LOG_ERR("AGNSS proxy returned HTTP %d", resp.http_status_code);
+        rtt_dump_text(resp.response, resp.response_len);
         return -EIO;
     }
 

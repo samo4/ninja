@@ -22,6 +22,8 @@
 #endif
 #include "network.h"
 
+#include "utils.h"
+
 LOG_MODULE_REGISTER(cloud_post, CONFIG_APP_CLOUD_POST_LOG_LEVEL);
 
 ZBUS_CHAN_DEFINE(cloud_post_chan, struct cloud_post_msg, NULL, NULL, ZBUS_OBSERVERS_EMPTY, ZBUS_MSG_INIT(0));
@@ -111,7 +113,8 @@ static void cloud_post_send(void) {
         struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = err};
         zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
     }
-    LOG_DBG("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
+    // LOG_DBG("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
+    rtt_dump_text(resp.response, resp.response_len);
 }
 
 static void cloud_post_wdt_callback(int channel_id, void *user_data) {

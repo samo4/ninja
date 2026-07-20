@@ -128,7 +128,7 @@ static void network_msg_send(const struct network_msg *msg) {
 static struct k_work_delayable connected_dwork;
 
 static void connected_dwork_handler(struct k_work *work) {
-    LOG_INF("Network ready, notifying connected");
+    LOG_INF("\x1b[32mNetwork ready\x1b[0m, notifying connected");
     network_status_notify(NETWORK_CONNECTED);
 }
 
@@ -154,11 +154,11 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_PDN:
             switch (evt->pdn.type) {
                 case LTE_LC_EVT_PDN_ACTIVATED: {
-                    int pdn_err = k_work_schedule(&connected_dwork, K_SECONDS(15));
+                    int pdn_err = k_work_schedule(&connected_dwork, K_SECONDS(20));
                     if (pdn_err < 0) {
                         LOG_ERR("Failed to schedule connected work, error: %d", pdn_err);
                     }
-                    LOG_DBG("PDN connection activated, will notify connected in 15s");
+                    LOG_DBG("PDN connection activated, will notify connected in 20s");
                     break;
                 }
                 case LTE_LC_EVT_PDN_DEACTIVATED: {
