@@ -104,10 +104,10 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
      */
     char request_body[512];
     int body_len = snprintf(request_body, sizeof(request_body), "{");
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
-                         "\"data_flags\":%u,", (unsigned int)agnss_req->data_flags);
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
-                         "\"system_count\":%u,\"system\":[", (unsigned int)agnss_req->system_count);
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"data_flags\":%u,",
+                         (unsigned int)agnss_req->data_flags);
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"system_count\":%u,\"system\":[",
+                         (unsigned int)agnss_req->system_count);
 
     for (uint8_t i = 0; i < agnss_req->system_count && i < NRF_MODEM_GNSS_MAX_SYSTEMS; i++) {
         if (i > 0) {

@@ -40,10 +40,10 @@ ZBUS_CHAN_DECLARE(timer_chan);
 /* X-macro: subscribe to timer (self), location (GNSS fix),
  * cloud_post (POST done), network (disconnect).
  */
-#define LOCATION_TEST_CHANNEL_LIST(X)              \
-    X(timer_chan, struct location_test_timer_msg)  \
-    X(location_chan, struct location_msg)          \
-    X(cloud_post_chan, struct cloud_post_msg)      \
+#define LOCATION_TEST_CHANNEL_LIST(X)             \
+    X(timer_chan, struct location_test_timer_msg) \
+    X(location_chan, struct location_msg)         \
+    X(cloud_post_chan, struct cloud_post_msg)     \
     X(network_chan, struct network_msg)
 
 #define LOCATION_TEST_MAX_MSG_SIZE MAX_MSG_SIZE_FROM_LIST(LOCATION_TEST_CHANNEL_LIST)
