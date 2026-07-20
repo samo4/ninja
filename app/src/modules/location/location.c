@@ -327,7 +327,7 @@ static void apply_gnss_time(const struct nrf_modem_gnss_pvt_data_frame *pvt_data
         .tm_sec = pvt_data->datetime.seconds,
     };
 
-    date_time_set(&gnss_time);
+    // date_time_set(&gnss_time);
 }
 #endif /* CONFIG_LOCATION_METHOD_GNSS */
 
@@ -342,10 +342,8 @@ static void location_event_handler(const struct location_event_data *event_data)
             if (event_data->method == LOCATION_METHOD_GNSS) {
                 struct nrf_modem_gnss_pvt_data_frame pvt_data = event_data->location.details.gnss.pvt_data;
                 if (event_data->location.datetime.valid) {
-                    /* GNSS is the most accurate time source -  use it. */
                     apply_gnss_time(&pvt_data);
                 } else {
-                    /* this should not happen */
                     LOG_WRN("Got GNSS location without valid time data");
                 }
 

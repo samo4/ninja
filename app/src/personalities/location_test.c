@@ -142,8 +142,8 @@ static enum smf_state_result waiting_location_run(void *o) {
         const struct location_msg *msg = (const struct location_msg *)state->msg_buf;
 
         if (msg->type == LOCATION_GNSS_DATA) {
-            LOG_INF("LT: GNSS fix received (lat=%.6f, lon=%.6f, acc=%.1f)",
-                    msg->gnss_data.latitude, msg->gnss_data.longitude, msg->gnss_data.accuracy);
+            LOG_INF("LT: GNSS fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude,
+                    msg->gnss_data.longitude, (double)msg->gnss_data.accuracy);
             state->location_received = true;
             return SMF_EVENT_HANDLED;
         }
@@ -154,7 +154,7 @@ static enum smf_state_result waiting_location_run(void *o) {
             } else {
                 LOG_WRN("LT: location search done — no fix obtained, sending empty");
             }
-            /* cloud_post will pick up the data and send; move to wait for its result. */
+            /* cloud_post will auto-trigger on location data once LTE is connected. */
             lt_state_name = "waiting_cloud";
             timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
@@ -164,7 +164,7 @@ static enum smf_state_result waiting_location_run(void *o) {
 
     if (state->chan == &timer_chan) {
         LOG_WRN("LT: location timeout — no fix obtained, sending empty");
-        /* Even on timeout, cloud_post should have whatever data we got. */
+        /* cloud_post will auto-trigger on whatever location data we have (probably empty). */
         lt_state_name = "waiting_cloud";
         timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
