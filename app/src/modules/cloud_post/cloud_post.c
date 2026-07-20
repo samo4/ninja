@@ -140,13 +140,12 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
         return;
     }
 
-    /* Fetch device UUID — hw_id does not need the modem to be initialized */
     {
         int ret = hw_id_get(device_uid, sizeof(device_uid));
         if (ret == 0) {
-            LOG_INF("Device UUID: %s", device_uid);
+            LOG_INF("Device ID: %s", device_uid);
         } else {
-            LOG_WRN("Failed to get device UUID: %d", ret);
+            LOG_WRN("Failed to get device ID: %d", ret);
             strncpy(device_uid, "error", sizeof(device_uid) - 1);
         }
     }
