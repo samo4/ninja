@@ -6,7 +6,7 @@
 
 menuconfig APP_AGNSS_DATA
 	bool "A-GNSS data module"
-	depends on LOCATION_METHOD_GNSS
+	depends on LOCATION
 	help
 	  Module that handles A-GNSS (Assisted GNSS) assistance requests from
 	  the location library. When the GNSS subsystem needs assistance data
@@ -22,7 +22,7 @@ if APP_AGNSS_DATA
 
 config APP_AGNSS_DATA_HOST
 	string "AGNSS proxy hostname"
-	default "localhost"
+	default "balirkaback.azurewebsites.net"
 	help
 	  Hostname of the A-GNSS proxy server that provides assistance data.
 
@@ -35,7 +35,7 @@ config APP_AGNSS_DATA_PORT
 
 config APP_AGNSS_DATA_URL
 	string "AGNSS proxy URL path"
-	default "/agnss"
+	default "/api/agnss"
 	help
 	  URL path of the A-GNSS proxy endpoint.
 	  The A-GNSS request parameters will be sent to this endpoint.

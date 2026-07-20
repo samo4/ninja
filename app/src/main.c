@@ -60,7 +60,7 @@
 #define personality_process location_test_process
 
 #else
-#error "No personality selected. Set CONFIG_APP_PERSONALITY_REPORTING, CONFIG_APP_PERSONALITY_LOW_POWER_TEST, or CONFIG_APP_PERSONALITY_LOCATION_TEST."
+#error "No personality selected!"
 #endif
 
 LOG_MODULE_REGISTER(main, 4);

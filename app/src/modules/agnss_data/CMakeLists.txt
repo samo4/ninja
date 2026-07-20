@@ -7,4 +7,6 @@
 target_sources_ifdef(CONFIG_APP_AGNSS_DATA app PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/agnss_data.c
 )
-target_include_directories(app PRIVATE .)
+target_include_directories(app PRIVATE .
+	${CMAKE_CURRENT_SOURCE_DIR}/../location
+)

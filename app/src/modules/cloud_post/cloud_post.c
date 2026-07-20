@@ -17,7 +17,7 @@
 #include "app_common.h"
 #include "cloud_post.h"
 #include "environmental.h"
-#if defined(CONFIG_APP_LOCATION)
+#if defined(CONFIG_LOCATION)
 #include "location.h"
 #endif
 #include "network.h"
@@ -29,7 +29,7 @@ ZBUS_CHAN_DEFINE(cloud_post_chan, struct cloud_post_msg, NULL, NULL, ZBUS_OBSERV
 ZBUS_MSG_SUBSCRIBER_DEFINE(cloud_post);
 
 ZBUS_CHAN_ADD_OBS(environmental_chan, cloud_post, 0);
-#if defined(CONFIG_APP_LOCATION)
+#if defined(CONFIG_LOCATION)
 ZBUS_CHAN_ADD_OBS(location_chan, cloud_post, 0);
 #endif
 ZBUS_CHAN_ADD_OBS(network_chan, cloud_post, 0);
@@ -122,7 +122,7 @@ static void cloud_post_wdt_callback(int channel_id, void *user_data) {
 static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     const struct zbus_channel *chan;
-#if defined(CONFIG_APP_LOCATION)
+#if defined(CONFIG_LOCATION)
     uint8_t
         msg_buf[MAX(sizeof(struct environmental_msg), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
 #else
@@ -177,7 +177,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 mod.connected = false;
             }
         }
-#if defined(CONFIG_APP_LOCATION)
+#if defined(CONFIG_LOCATION)
         else if (chan == &location_chan) {
             const struct location_msg *msg = (const struct location_msg *)msg_buf;
             if (msg->type == LOCATION_GNSS_DATA) {
@@ -197,7 +197,11 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
             }
         }
 
-        if (mod.env_received || mod.location_received) {
+#if defined(CONFIG_LOCATION)
+        if (mod.location_received) {
+#else
+        if (mod.env_received) {
+#endif
             if (mod.connected) {
                 cloud_post_send();
                 mod_reset_samples();
