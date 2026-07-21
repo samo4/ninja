@@ -175,10 +175,7 @@ static void sample_sensors(struct environmental_state_object *state) {
     }
 }
 
-static void env_wdt_callback(int channel_id, void *user_data) {
-    LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
-    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
-}
+TASK_WDT_CALLBACK_DEFINE(env)
 
 // State handlers
 
@@ -197,10 +194,8 @@ static enum smf_state_result state_running_run(void *obj) {
 
 static void env_module_thread(void) {
     int err;
-    int task_wdt_id;
-    const uint32_t wdt_timeout_ms = (CONFIG_APP_ENVIRONMENTAL_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const uint32_t execution_time_ms = (CONFIG_APP_ENVIRONMENTAL_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
+    TASK_WDT_TIMEOUTS(APP_ENVIRONMENTAL);
+    TASK_WDT_ZBUS_TIMEOUT;
     static struct environmental_state_object environmental_state = {
 #if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
         .lis2dtw12_spi =
@@ -229,22 +224,12 @@ static void env_module_thread(void) {
     }
 #endif
 
-    task_wdt_id = task_wdt_add(wdt_timeout_ms, env_wdt_callback, (void *)k_current_get());
-    if (task_wdt_id < 0) {
-        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    TASK_WDT_ADD(env, wdt_timeout_ms)
 
     smf_set_initial(SMF_CTX(&environmental_state), &states[STATE_RUNNING]);
 
     while (true) {
-        err = task_wdt_feed(task_wdt_id);
-        if (err) {
-            LOG_ERR("task_wdt_feed, error: %d", err);
-            SEND_FATAL_ERROR();
-            return;
-        }
+        TASK_WDT_FEED();
 
         err = zbus_sub_wait_msg(&environmental, &environmental_state.chan, environmental_state.msg_buf, zbus_wait_ms);
         if (err == -ENOMSG) {

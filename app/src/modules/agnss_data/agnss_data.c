@@ -183,11 +183,7 @@ static void handle_network_event(const struct network_msg *msg) {
  * Module thread
  * -------------------------------------------------------------------------*/
 
-static void agnss_data_wdt_callback(int channel_id, void *user_data) {
-    LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
-
-    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
-}
+TASK_WDT_CALLBACK_DEFINE(agnss_data)
 
 static void agnss_data_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
@@ -197,27 +193,16 @@ static void agnss_data_module_thread(void *arg1, void *arg2, void *arg3) {
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
 
-    const uint32_t wdt_timeout_ms = CONFIG_APP_AGNSS_DATA_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC;
-    const uint32_t execution_time_ms = CONFIG_APP_AGNSS_DATA_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC;
-    const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
+    TASK_WDT_TIMEOUTS(APP_AGNSS_DATA);
+    TASK_WDT_ZBUS_TIMEOUT;
 
-    int task_wdt_id = task_wdt_add(wdt_timeout_ms, agnss_data_wdt_callback, (void *)k_current_get());
-    if (task_wdt_id < 0) {
-        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    TASK_WDT_ADD(agnss_data, wdt_timeout_ms)
 
     mod.initialized = true;
     LOG_DBG("A-GNSS data module started");
 
     while (true) {
-        err = task_wdt_feed(task_wdt_id);
-        if (err) {
-            LOG_ERR("Failed to feed the watchdog: %d", err);
-            SEND_FATAL_ERROR();
-            return;
-        }
+        TASK_WDT_FEED();
 
         uint8_t msg_buf[MAX(sizeof(struct location_msg), sizeof(struct network_msg))];
         err = zbus_sub_wait_msg(&agnss_data, &chan, msg_buf, zbus_wait_ms);

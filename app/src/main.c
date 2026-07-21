@@ -75,17 +75,12 @@ PERSONALITY_CHANNEL_LIST(ADD_OBSERVERS)
 
 /* ── Watchdog ───────────────────────────────────────────────────── */
 
-static void task_wdt_callback(int channel_id, void *user_data) {
-    LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
-    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
-}
+TASK_WDT_CALLBACK_DEFINE(task)
 
-int main(void) {
+void main(void) {
     int err;
-    int task_wdt_id;
-    const uint32_t wdt_timeout_ms = (CONFIG_APP_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const uint32_t execution_time_ms = (CONFIG_APP_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
+    TASK_WDT_TIMEOUTS(APP);
+    TASK_WDT_ZBUS_TIMEOUT;
     static PERSONALITY_STATE state;
 
     LOG_INF("Main has started");
@@ -93,30 +88,20 @@ int main(void) {
     personality_init(&state);
     heartbeat_start();
 
-    task_wdt_id = task_wdt_add(wdt_timeout_ms, task_wdt_callback, (void *)k_current_get());
-    if (task_wdt_id < 0) {
-        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-        SEND_FATAL_ERROR();
-        return -EFAULT;
-    }
+    TASK_WDT_ADD(task, wdt_timeout_ms)
 
     // Run the initial SMF transition (e.g. fire first sample)
     personality_process(&state);
 
     while (1) {
-        err = task_wdt_feed(task_wdt_id);
-        if (err) {
-            LOG_ERR("task_wdt_feed, error: %d", err);
-            SEND_FATAL_ERROR();
-            return err;
-        }
+        TASK_WDT_FEED();
         err = zbus_sub_wait_msg(&main_subscriber, &state.chan, state.msg_buf, zbus_wait_ms);
         if (err == -ENOMSG) {
             continue;
         } else if (err) {
             LOG_ERR("zbus_sub_wait_msg, error: %d", err);
             SEND_FATAL_ERROR();
-            return err;
+            return;
         }
         personality_process(&state);
     }

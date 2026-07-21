@@ -117,10 +117,7 @@ static void cloud_post_send(void) {
     rtt_dump_text(resp.response, resp.response_len);
 }
 
-static void cloud_post_wdt_callback(int channel_id, void *user_data) {
-    LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
-    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
-}
+TASK_WDT_CALLBACK_DEFINE(cloud_post)
 
 static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
@@ -136,12 +133,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
 
-    int task_wdt_id = task_wdt_add(REST_TIMEOUT_MS + 60000, cloud_post_wdt_callback, (void *)k_current_get());
-    if (task_wdt_id < 0) {
-        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    TASK_WDT_ADD(cloud_post, REST_TIMEOUT_MS + 60000)
 
     {
         int ret = hw_id_get(device_uid, sizeof(device_uid));
@@ -156,12 +148,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     mod_reset_samples();
 
     while (true) {
-        err = task_wdt_feed(task_wdt_id);
-        if (err) {
-            LOG_ERR("task_wdt_feed, error: %d", err);
-            SEND_FATAL_ERROR();
-            return;
-        }
+        TASK_WDT_FEED();
 
         err = zbus_sub_wait_msg(&cloud_post, &chan, msg_buf, K_FOREVER);
         if (err) {

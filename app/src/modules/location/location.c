@@ -118,10 +118,7 @@ static const struct smf_state states[] = {
         state_location_search_active_entry, state_location_search_active_run, NULL, &states[STATE_RUNNING], NULL),
 };
 
-static void location_wdt_callback(int channel_id, void *user_data) {
-    LOG_ERR("Watchdog expired, Channel: %d, Thread: %s", channel_id, k_thread_name_get((k_tid_t)user_data));
-    SEND_FATAL_ERROR_WATCHDOG_TIMEOUT();
-}
+TASK_WDT_CALLBACK_DEFINE(location)
 
 static void cloud_request_send(const struct location_data_cloud *cloud_request) {
     struct location_msg location_msg = {
@@ -420,30 +417,18 @@ static void location_event_handler(const struct location_event_data *event_data)
 
 static void location_module_thread(void) {
     int err;
-    int task_wdt_id;
-    const uint32_t wdt_timeout_ms = (CONFIG_APP_LOCATION_WATCHDOG_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const uint32_t execution_time_ms = (CONFIG_APP_LOCATION_MSG_PROCESSING_TIMEOUT_SECONDS * MSEC_PER_SEC);
-    const k_timeout_t zbus_wait_ms = K_MSEC(wdt_timeout_ms - execution_time_ms);
+    TASK_WDT_TIMEOUTS(APP_LOCATION);
+    TASK_WDT_ZBUS_TIMEOUT;
     static struct location_state_object location_state;
 
     LOG_DBG("Location module task started");
 
-    task_wdt_id = task_wdt_add(wdt_timeout_ms, location_wdt_callback, (void *)k_current_get());
-    if (task_wdt_id < 0) {
-        LOG_ERR("Failed to add task to watchdog: %d", task_wdt_id);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    TASK_WDT_ADD(location, wdt_timeout_ms)
 
     smf_set_initial(SMF_CTX(&location_state), &states[STATE_WAITING_FOR_CFUN]);
 
     while (true) {
-        err = task_wdt_feed(task_wdt_id);
-        if (err) {
-            LOG_ERR("Failed to feed the watchdog: %d", err);
-            SEND_FATAL_ERROR();
-            return;
-        }
+        TASK_WDT_FEED();
 
         err = zbus_sub_wait_msg(&location, &location_state.chan, location_state.msg_buf, zbus_wait_ms);
         if (err == -ENOMSG) {
