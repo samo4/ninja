@@ -42,10 +42,6 @@
 
 LOG_MODULE_REGISTER(location_cloud, CONFIG_APP_LOCATION_CLOUD_LOG_LEVEL);
 
-/* Buffer sizes from Kconfig. */
-#define AGNSS_DATA_BUF_SIZE CONFIG_APP_LOCATION_CLOUD_AGNSS_BUFFER_SIZE
-#define CELLULAR_BUF_SIZE CONFIG_APP_LOCATION_CLOUD_CELLULAR_BUFFER_SIZE
-
 /* ---------------------------------------------------------------------------
  * zbus channels and subscription
  * -------------------------------------------------------------------------*/
@@ -58,6 +54,8 @@ ZBUS_MSG_SUBSCRIBER_DEFINE(location_cloud);
 ZBUS_CHAN_ADD_OBS(location_chan, location_cloud, 0);
 /* Observe the network channel to track LTE connectivity. */
 ZBUS_CHAN_ADD_OBS(network_chan, location_cloud, 0);
+
+#define CHUNK_SIZE 1400
 
 /* ---------------------------------------------------------------------------
  * Internal state
@@ -104,7 +102,6 @@ static void publish_result(enum location_cloud_msg_type type, int http_status) {
     };
 
     int err = zbus_chan_pub(&location_cloud_chan, &msg, PUB_TIMEOUT);
-
     if (err) {
         LOG_ERR("Failed to publish location cloud result: %d", err);
     }
@@ -141,13 +138,15 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         return -ENOMEM;
     }
 
-#define AGNSS_CHUNK_SIZE 1400
-    static uint8_t full_buf[AGNSS_DATA_BUF_SIZE];
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
+            CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, request_body);
+
+    static uint8_t full_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
 
     int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
                                  CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG, request_body,
-                                 body_len, AGNSS_CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
+                                 body_len, CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         return err;
@@ -171,8 +170,6 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
 static int send_cellular_cloud_request(const struct location_cloud_request_data *cloud_req) {
     char request_body[2048];
     int body_len = snprintf(request_body, sizeof(request_body), "{");
-
-    /* Current (serving) cell. */
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"current_cell\":{");
     body_len += snprintf(
         request_body + body_len, sizeof(request_body) - body_len,
@@ -183,8 +180,6 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
         (unsigned int)cloud_req->current_cell.tac, (unsigned int)cloud_req->current_cell.timing_advance,
         (unsigned int)cloud_req->current_cell.earfcn, cloud_req->current_cell.rsrp, cloud_req->current_cell.rsrq);
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "},");
-
-    /* Neighbour cells. */
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"neighbor_cells\":[");
     for (uint8_t i = 0; i < cloud_req->ncells_count; i++) {
         if (i > 0) {
@@ -198,8 +193,6 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
                              cloud_req->neighbor_cells[i].rsrq);
     }
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "],");
-
-    /* GCI cells. */
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"gci_cells\":[");
     for (uint8_t i = 0; i < cloud_req->gci_cells_count; i++) {
         if (i > 0) {
@@ -240,13 +233,15 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
         return -ENOMEM;
     }
 
-#define CELLULAR_CHUNK_SIZE 1400
-    static uint8_t cell_buf[CELLULAR_BUF_SIZE];
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
+            CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, request_body);
+
+    static uint8_t cell_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
 
     int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
                                  CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG,
-                                 request_body, body_len, CELLULAR_CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
+                                 request_body, body_len, CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to send cellular cloud request: %d", err);
         return err;

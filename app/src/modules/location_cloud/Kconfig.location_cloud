@@ -57,12 +57,12 @@ config APP_LOCATION_CLOUD_AGNSS_URL
 	  URL path of the A-GNSS proxy endpoint.
 	  The A-GNSS request parameters will be sent to this endpoint.
 
-config APP_LOCATION_CLOUD_AGNSS_BUFFER_SIZE
-	int "A-GNSS response buffer size"
+config APP_LOCATION_CLOUD_BUFFER_SIZE
+	int "Location cloud response buffer size"
 	default 3800
 	help
-	  Maximum size of the A-GNSS data response buffer.
-	  The default 3800 bytes matches the nRF Cloud AGNSS data size.
+	  Maximum size of the location cloud response buffer.
+	  The default 3800 bytes matches the nRF Cloud location cloud response size.
 
 # ── Cellular cloud location settings ─────────────────────────────────────
 
@@ -72,12 +72,6 @@ config APP_LOCATION_CLOUD_CELLULAR_URL
 	help
 	  URL path of the cellular cloud location endpoint.
 	  Cellular and Wi-Fi scanning data will be sent to this endpoint.
-
-config APP_LOCATION_CLOUD_CELLULAR_BUFFER_SIZE
-	int "Cellular cloud location response buffer size"
-	default 2048
-	help
-	  Maximum size of the cellular cloud location response buffer.
 
 # ── Thread and watchdog settings ─────────────────────────────────────────
 
