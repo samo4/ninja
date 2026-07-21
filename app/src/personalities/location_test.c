@@ -11,13 +11,14 @@
  *   via the location_chan that cloud_post now also observes.
  *
  *   State machine:
+ *     CONNECTING       — re-establish LTE connection after sleep (modem was offline)
  *     SAMPLING         — fire LOCATION_CELLULAR_SEARCH_TRIGGER or LOCATION_GNSS_SEARCH_TRIGGER
  *     WAITING_LOCATION — wait for LOCATION_DATA or timer expiry
  *     WAITING_CLOUD    — cloud_post handles LTE connect + POST, personality
  *                        waits for SEND_DONE / SEND_FAILED
  *     DISCONNECTING    — waiting for NETWORK_DISCONNECTED
  *     SLEEPING         — modem-off power-measurement window
- *     → back to SAMPLING
+ *     → CONNECTING → SAMPLING → ...
  */
 
 #include <zephyr/logging/log.h>
@@ -103,6 +104,8 @@ static void disconnecting_entry(void *o);
 static enum smf_state_result disconnecting_run(void *o);
 static void sleeping_entry(void *o);
 static enum smf_state_result sleeping_run(void *o);
+static void connecting_entry(void *o);
+static enum smf_state_result connecting_run(void *o);
 static void rebooting_entry(void *o);
 
 static const struct smf_state states[] = {
@@ -112,6 +115,7 @@ static const struct smf_state states[] = {
     [LOCATION_TEST_STATE_WAITING_CLOUD] = SMF_CREATE_STATE(NULL, waiting_cloud_run, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_DISCONNECTING] = SMF_CREATE_STATE(disconnecting_entry, disconnecting_run, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_SLEEPING] = SMF_CREATE_STATE(sleeping_entry, sleeping_run, NULL, NULL, NULL),
+    [LOCATION_TEST_STATE_CONNECTING] = SMF_CREATE_STATE(connecting_entry, connecting_run, NULL, NULL, NULL),
     [LOCATION_TEST_STATE_REBOOTING] = SMF_CREATE_STATE(rebooting_entry, NULL, NULL, NULL, NULL),
 };
 
@@ -285,10 +289,40 @@ static void sleeping_entry(void *o) {
 static enum smf_state_result sleeping_run(void *o) {
     struct location_test_state_object *state = (struct location_test_state_object *)o;
     if (state->chan == &timer_chan) {
-        LOG_INF("LT: sleep expired, starting new cycle");
-        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+        LOG_INF("LT: sleep expired, reconnecting modem");
+        smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_CONNECTING]);
         return SMF_EVENT_HANDLED;
     }
+    return SMF_EVENT_PROPAGATE;
+}
+
+static void connecting_entry(void *o) {
+    ARG_UNUSED(o);
+    lt_state_name = "connecting";
+    LOG_DBG("%s", __func__);
+    /* Request LTE connection so the modem is initialized and GNSS becomes
+     * available. Previously the modem was put offline during SLEEPING.
+     */
+    const struct network_msg connect_msg = {.type = NETWORK_CONNECT};
+    int err = zbus_chan_pub(&network_chan, &connect_msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish NETWORK_CONNECT, error: %d", err);
+        SEND_FATAL_ERROR();
+    }
+}
+
+static enum smf_state_result connecting_run(void *o) {
+    struct location_test_state_object *state = (struct location_test_state_object *)o;
+
+    if (state->chan == &network_chan) {
+        const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
+        if (msg->type == NETWORK_CONNECTED) {
+            LOG_INF("LT: LTE re-connected, starting new search cycle");
+            smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
+            return SMF_EVENT_HANDLED;
+        }
+    }
+
     return SMF_EVENT_PROPAGATE;
 }
 
