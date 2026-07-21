@@ -410,15 +410,7 @@ static void location_event_handler(const struct location_event_data *event_data)
             break;
         case LOCATION_EVT_CLOUD_LOCATION_EXT_REQUEST:
             LOG_DBG("Cloud location request received from location library");
-
             cloud_request_send(&event_data->cloud_location_request);
-
-            /* Cancel the current location request to avoid falling back to the next
-             * location source. Treat the fact that we have found Wi-Fi APs and/or cellular data
-             * as a successful location request, even if we don't know whether the
-             * cloud is able to resolve data to a location or not.
-             */
-            message_send(LOCATION_SEARCH_CANCEL);
             break;
         case LOCATION_EVT_GNSS_ASSISTANCE_REQUEST:
             LOG_DBG("A-GNSS assistance request received from location library");

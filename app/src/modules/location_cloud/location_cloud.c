@@ -165,66 +165,73 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
 
 /* ---------------------------------------------------------------------------
  * Cellular / Wi-Fi cloud location request
+ *
+ * Produces JSON matching nRF Cloud's cell location API (POST /v1/location/cell).
+ * The proxy is expected to add the OAT (Organization Auth Token).
+ * See https://api-docs.nrfcloud.com/v1#tag/Cell-Location
  * -------------------------------------------------------------------------*/
 
 static int send_cellular_cloud_request(const struct location_cloud_request_data *cloud_req) {
     char request_body[2048];
-    int body_len = snprintf(request_body, sizeof(request_body), "{");
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"current_cell\":{");
-    body_len += snprintf(
-        request_body + body_len, sizeof(request_body) - body_len,
-        "\"id\":%u,\"mcc\":%d,\"mnc\":%d,\"tac\":%u,"
-        "\"timing_advance\":%u,\"earfcn\":%u,"
-        "\"rsrp\":%d,\"rsrq\":%d",
-        (unsigned int)cloud_req->current_cell.id, cloud_req->current_cell.mcc, cloud_req->current_cell.mnc,
-        (unsigned int)cloud_req->current_cell.tac, (unsigned int)cloud_req->current_cell.timing_advance,
-        (unsigned int)cloud_req->current_cell.earfcn, cloud_req->current_cell.rsrp, cloud_req->current_cell.rsrq);
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "},");
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"neighbor_cells\":[");
-    for (uint8_t i = 0; i < cloud_req->ncells_count; i++) {
-        if (i > 0) {
-            body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",");
-        }
-        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
-                             "{\"earfcn\":%u,\"phys_cell_id\":%u,"
-                             "\"rsrp\":%d,\"rsrq\":%d}",
-                             (unsigned int)cloud_req->neighbor_cells[i].earfcn,
-                             (unsigned int)cloud_req->neighbor_cells[i].phys_cell_id, cloud_req->neighbor_cells[i].rsrp,
-                             cloud_req->neighbor_cells[i].rsrq);
+    int body_len = 0;
+
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "{");
+
+    /* ── ltecatm: serving cell (LTE-M) ──────────────────────────────────*/
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"ltecatm\":[{");
+
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
+                         "\"mcc\":%d,\"mnc\":%d,"
+                         "\"eci\":%u,\"tac\":%u,"
+                         "\"earfcn\":%u,"
+                         "\"rsrp\":%d,\"rsrq\":%d,"
+                         "\"adv\":%u",
+                         cloud_req->current_cell.mcc, cloud_req->current_cell.mnc,
+                         (unsigned int)cloud_req->current_cell.id, (unsigned int)cloud_req->current_cell.tac,
+                         (unsigned int)cloud_req->current_cell.earfcn, -cloud_req->current_cell.rsrp,
+                         -cloud_req->current_cell.rsrq, (unsigned int)(cloud_req->current_cell.timing_advance * 78));
+
+    /* PCI from first neighbour if available. */
+    if (cloud_req->ncells_count > 0) {
+        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",\"pci\":%u",
+                             (unsigned int)cloud_req->neighbor_cells[0].phys_cell_id);
     }
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "],");
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"gci_cells\":[");
+
+    /* NMR: neighbour cell measurements. */
+    if (cloud_req->ncells_count > 0) {
+        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",\"nmr\":[");
+        for (uint8_t i = 0; i < cloud_req->ncells_count; i++) {
+            if (i > 0) {
+                body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",");
+            }
+            body_len +=
+                snprintf(request_body + body_len, sizeof(request_body) - body_len,
+                         "{\"earfcn\":%u,\"pci\":%u,"
+                         "\"rsrp\":%d,\"rsrq\":%d,\"timeDiff\":%d}",
+                         (unsigned int)cloud_req->neighbor_cells[i].earfcn,
+                         (unsigned int)cloud_req->neighbor_cells[i].phys_cell_id, -cloud_req->neighbor_cells[i].rsrp,
+                         -cloud_req->neighbor_cells[i].rsrq, cloud_req->neighbor_cells[i].time_diff);
+        }
+        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "]");
+    }
+
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "}],");
+
+    /* ── lte: GCI cells (full network-identity cells) ───────────────────*/
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"lte\":[");
     for (uint8_t i = 0; i < cloud_req->gci_cells_count; i++) {
         if (i > 0) {
             body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",");
         }
         body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
-                             "{\"id\":%u,\"mcc\":%d,\"mnc\":%d,\"tac\":%u,"
+                             "{\"mcc\":%d,\"mnc\":%d,"
+                             "\"eci\":%u,\"tac\":%u,"
                              "\"earfcn\":%u,\"rsrp\":%d}",
-                             (unsigned int)cloud_req->gci_cells[i].id, cloud_req->gci_cells[i].mcc,
-                             cloud_req->gci_cells[i].mnc, (unsigned int)cloud_req->gci_cells[i].tac,
-                             (unsigned int)cloud_req->gci_cells[i].earfcn, cloud_req->gci_cells[i].rsrp);
-    }
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "],");
-
-#if defined(CONFIG_LOCATION_METHOD_WIFI)
-    /* Wi-Fi access points. */
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"wifi_aps\":[");
-    for (uint16_t i = 0; i < cloud_req->wifi_cnt; i++) {
-        if (i > 0) {
-            body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, ",");
-        }
-        body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len,
-                             "{\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
-                             "\"rssi\":%d}",
-                             cloud_req->wifi_aps[i].mac[0], cloud_req->wifi_aps[i].mac[1],
-                             cloud_req->wifi_aps[i].mac[2], cloud_req->wifi_aps[i].mac[3],
-                             cloud_req->wifi_aps[i].mac[4], cloud_req->wifi_aps[i].mac[5], cloud_req->wifi_aps[i].rssi);
+                             cloud_req->gci_cells[i].mcc, cloud_req->gci_cells[i].mnc,
+                             (unsigned int)cloud_req->gci_cells[i].id, (unsigned int)cloud_req->gci_cells[i].tac,
+                             (unsigned int)cloud_req->gci_cells[i].earfcn, -cloud_req->gci_cells[i].rsrp);
     }
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "]");
-#else
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"wifi_aps\":[]");
-#endif /* CONFIG_LOCATION_METHOD_WIFI */
 
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "}");
 
