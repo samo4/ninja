@@ -1,4 +1,3 @@
-#include <net/rest_client.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/task_wdt/task_wdt.h>
@@ -17,8 +16,6 @@ LOG_MODULE_REGISTER(agnss_data, CONFIG_APP_AGNSS_DATA_LOG_LEVEL);
 
 /* Buffer for storing the A-GNSS response data from the proxy. */
 #define AGNSS_DATA_BUF_SIZE CONFIG_APP_AGNSS_DATA_BUFFER_SIZE
-
-#define REST_REQUEST_TIMEOUT_MS 15000
 
 /* ---------------------------------------------------------------------------
  * zbus channels and subscription
@@ -95,7 +92,6 @@ static void publish_result(enum agnss_data_msg_type type, int http_status) {
  */
 static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_req) {
     int err;
-    static char resp_buf[AGNSS_DATA_BUF_SIZE];
 
     /*
      * Serialise the A-GNSS request parameters into a JSON payload that
@@ -127,47 +123,29 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         return -ENOMEM;
     }
 
-    const char *header_fields[] = {"Content-Type: application/json\r\n", NULL};
+    /*
+     * Fetch all A-GNSS data in byte-range chunks via the utility function.
+     * The nRF91 modem's TLS receive buffer is ~2 KB, so each chunk request
+     * stays well under that limit.  The function concatenates all chunks
+     * into a single buffer for processing.
+     */
+#define AGNSS_CHUNK_SIZE 1400
 
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
-            request_body);
+    static uint8_t full_buf[AGNSS_DATA_BUF_SIZE];
+    size_t total_len = 0;
 
-    struct rest_client_req_context req = {0};
-    struct rest_client_resp_context resp = {0};
-    rest_client_request_defaults_set(&req);
-
-    req.host = CONFIG_APP_AGNSS_DATA_HOST;
-    req.port = CONFIG_APP_AGNSS_DATA_PORT;
-    req.url = CONFIG_APP_AGNSS_DATA_URL;
-    req.sec_tag = CONFIG_APP_AGNSS_DATA_SEC_TAG;
-    req.tls_peer_verify = 0;
-    req.http_method = HTTP_POST;
-    req.header_fields = header_fields;
-    req.body = request_body;
-    req.body_len = body_len;
-    req.resp_buff = resp_buf;
-    req.resp_buff_len = sizeof(resp_buf);
-    req.timeout_ms = REST_REQUEST_TIMEOUT_MS;
-
-    LOG_DBG("Fetching A-GNSS data from %s:%d%s", CONFIG_APP_AGNSS_DATA_HOST, CONFIG_APP_AGNSS_DATA_PORT,
-            CONFIG_APP_AGNSS_DATA_URL);
-
-    err = rest_client_request(&req, &resp);
+    err = http_fetch_chunked(CONFIG_APP_AGNSS_DATA_HOST, CONFIG_APP_AGNSS_DATA_PORT, CONFIG_APP_AGNSS_DATA_URL,
+                             CONFIG_APP_AGNSS_DATA_SEC_TAG, request_body, body_len, AGNSS_CHUNK_SIZE, full_buf,
+                             sizeof(full_buf), &total_len);
     if (err) {
-        LOG_ERR("REST request to AGNSS proxy failed: %d", err);
+        LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         return err;
     }
 
-    if (resp.http_status_code != 200) {
-        LOG_ERR("AGNSS proxy returned HTTP %d", resp.http_status_code);
-        rtt_dump_text(resp.response, resp.response_len);
-        return -EIO;
-    }
+    LOG_INF("A-GNSS data fetched: %zu bytes", total_len);
 
-    LOG_DBG("A-GNSS data received: %d bytes", resp.response_len);
-
-    /* Feed the received data back to the GNSS subsystem. */
-    err = location_agnss_data_process(resp.response, resp.response_len);
+    /* Feed the complete received data to the GNSS subsystem. */
+    err = location_agnss_data_process(full_buf, total_len);
     if (err) {
         LOG_ERR("location_agnss_data_process failed: %d", err);
         return err;

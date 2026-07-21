@@ -7,6 +7,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,36 @@ extern "C" {
  * @param len   Number of bytes to write.
  */
 void rtt_dump_text(const char *data, size_t len);
+
+/**
+ * @brief Fetch data via HTTP POST in byte-range chunks.
+ *
+ * The nRF91 series modem has a ~2 KB limit on TLS receive records, so large
+ * HTTP responses must be fetched in small chunks.  This function sends POST
+ * requests with a @c Range header and concatenates the chunk responses into
+ * a single buffer.
+ *
+ * Each request includes @p body (e.g. a JSON payload) and requests
+ * @p chunk_size bytes.  The loop stops when a response is smaller than
+ * @p chunk_size, indicating the final chunk.
+ *
+ * @param host          Server hostname.
+ * @param port          Server port.
+ * @param url           URL path.
+ * @param sec_tag       TLS security tag.
+ * @param body          HTTP request body (sent with every chunk request).
+ * @param body_len      Length of @p body.
+ * @param chunk_size    Max bytes to request per chunk.  The HTTP response
+ *                      (headers + body) must fit in the modem TLS buffer,
+ *                      so values of 1200-1400 are typical.
+ * @param[out] out_buf  Buffer for the concatenated response data.
+ * @param out_buf_size  Size of @p out_buf.
+ * @param[out] out_len  Total bytes received across all chunks.
+ *
+ * @return 0 on success, a negative errno on failure.
+ */
+int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec_tag, const char *body, size_t body_len,
+                       size_t chunk_size, uint8_t *out_buf, size_t out_buf_size, size_t *out_len);
 
 #ifdef __cplusplus
 }
