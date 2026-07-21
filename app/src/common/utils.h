@@ -9,9 +9,34 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <net/rest_client.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** Timeout in ms for REST client requests. */
+#define REST_TIMEOUT_MS 30000
+
+/** Number of retries on transient REST client errors (total attempts = 1 + REST_RETRY_COUNT). */
+#define REST_RETRY_COUNT 3
+
+/**
+ * @brief Perform a REST client request with retry logic and shared timeout.
+ *
+ * Sets @c req->timeout_ms to @ref REST_TIMEOUT_MS and retries up to
+ * @ref REST_RETRY_COUNT times on transient errors.
+ *
+ * The caller must call @c rest_client_request_defaults_set() and populate
+ * all relevant @p req fields (host, port, url, sec_tag, http_method, body,
+ * resp_buff, resp_buff_len, etc.) before calling this function.
+ *
+ * @param req   REST client request context (partially populated by caller).
+ * @param resp  REST client response context (filled on success).
+ *
+ * @return 0 on success, negative errno on failure after all retries.
+ */
+int rest_client_request_with_retry(struct rest_client_req_context *req, struct rest_client_resp_context *resp);
 
 /**
  * @brief Write text data to the console in small chunks.

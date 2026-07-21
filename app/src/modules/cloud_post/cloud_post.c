@@ -44,8 +44,6 @@ ZBUS_CHAN_ADD_OBS(location_chan, cloud_post, 0);
 #endif
 ZBUS_CHAN_ADD_OBS(network_chan, cloud_post, 0);
 
-static const int REST_TIMEOUT_MS = 30000;
-
 static struct {
     bool connected;
     bool connect_requested;
@@ -105,15 +103,13 @@ static void cloud_post_send(void) {
     req.port = CONFIG_APP_CLOUD_POST_PORT;
     req.url = CONFIG_APP_CLOUD_POST_URL;
     req.sec_tag = CONFIG_APP_CLOUD_POST_SEC_TAG;
-    req.tls_peer_verify = 0;
     req.http_method = HTTP_POST;
     req.header_fields = header_fields;
     req.body = csv_body;
     req.body_len = strlen(csv_body);
     req.resp_buff = resp_buf;
     req.resp_buff_len = sizeof(resp_buf);
-    req.timeout_ms = REST_TIMEOUT_MS;
-    err = rest_client_request(&req, &resp);
+    err = rest_client_request_with_retry(&req, &resp);
     if (err == 0) {
         LOG_INF("Cloud POST response: \x1b[32mHTTP %d (%s)\x1b[0m, body: %d bytes", resp.http_status_code,
                 resp.http_status_code_str, resp.response_len);

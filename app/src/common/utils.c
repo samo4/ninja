@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/types.h>
 
@@ -82,6 +83,31 @@ void rtt_dump_text(const char *data, size_t len) {
 }
 
 /* ---------------------------------------------------------------------------
+ * REST client helper with retry
+ * -------------------------------------------------------------------------*/
+
+int rest_client_request_with_retry(struct rest_client_req_context *req, struct rest_client_resp_context *resp) {
+    int err;
+
+    req->timeout_ms = REST_TIMEOUT_MS;
+    req->tls_peer_verify = 0;
+
+    for (int attempt = 0; attempt <= REST_RETRY_COUNT; attempt++) {
+        err = rest_client_request(req, resp);
+
+        if (err == 0) {
+            return 0;
+        }
+
+        if (attempt < REST_RETRY_COUNT) {
+            k_sleep(K_SECONDS(10));
+        }
+    }
+
+    return err;
+}
+
+/* ---------------------------------------------------------------------------
  * Chunked HTTP fetcher
  *
  * The nRF91 series modem has a ~2 KB limit on TLS receive records, so the
@@ -148,16 +174,14 @@ int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec
         req.port = port;
         req.url = url;
         req.sec_tag = sec_tag;
-        req.tls_peer_verify = 0;
         req.http_method = HTTP_POST;
         req.header_fields = header_fields;
         req.body = body;
         req.body_len = body_len;
         req.resp_buff = resp_buf;
         req.resp_buff_len = sizeof(resp_buf);
-        req.timeout_ms = 15000;
 
-        err = rest_client_request(&req, &resp);
+        err = rest_client_request_with_retry(&req, &resp);
         if (err) {
             LOG_ERR("Chunk request at offset %u failed: %d", offset, err);
             return err;
