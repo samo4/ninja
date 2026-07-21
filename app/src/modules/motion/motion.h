@@ -18,25 +18,25 @@ extern "C" {
 ZBUS_CHAN_DECLARE(motion_chan);
 
 enum motion_msg_type {
-	/* Output message types */
+    /* Output message types */
 
-	/** Temperature sample data from the LIS2DTW12 sensor. */
-	MOTION_TEMPERATURE_DATA = 0x1,
+    /** Temperature sample data from the LIS2DTW12 sensor. */
+    MOTION_TEMPERATURE_DATA = 0x1,
 
-	/* Input message types */
+    /* Input message types */
 
-	/** Request to sample the LIS2DTW12 temperature sensor. */
-	MOTION_SAMPLE_REQUEST,
+    /** Request to sample the LIS2DTW12 temperature sensor. */
+    MOTION_SAMPLE_REQUEST,
 };
 
 struct motion_msg {
-	enum motion_msg_type type;
+    enum motion_msg_type type;
 
-	/** Temperature in degrees Celsius. */
-	double temperature;
+    /** Temperature in degrees Celsius. */
+    double temperature;
 
-	/** Timestamp when the sample was taken (uptime in milliseconds). */
-	int64_t timestamp;
+    /** Timestamp when the sample was taken (uptime in milliseconds). */
+    int64_t timestamp;
 };
 
 /**

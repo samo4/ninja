@@ -154,11 +154,11 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_PDN:
             switch (evt->pdn.type) {
                 case LTE_LC_EVT_PDN_ACTIVATED: {
-                    int pdn_err = k_work_schedule(&connected_dwork, K_SECONDS(20));
+                    int pdn_err = k_work_schedule(&connected_dwork, K_SECONDS(30));
                     if (pdn_err < 0) {
                         LOG_ERR("Failed to schedule connected work, error: %d", pdn_err);
                     }
-                    LOG_DBG("PDN connection activated, will notify connected in 20s");
+                    LOG_DBG("PDN connection activated, will notify connected in 30s");
                     break;
                 }
                 case LTE_LC_EVT_PDN_DEACTIVATED: {

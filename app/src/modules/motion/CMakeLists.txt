@@ -6,5 +6,8 @@
 
 target_sources(app PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/motion.c
+	${ZEPHYR_BASE}/../modules/hal/st/sensor/stmemsc/lis2dtw12_STdC/driver/lis2dtw12_reg.c
 )
-target_include_directories(app PRIVATE .)
+target_include_directories(app PRIVATE .
+	${ZEPHYR_BASE}/../modules/hal/st/sensor/stmemsc/lis2dtw12_STdC/driver
+)

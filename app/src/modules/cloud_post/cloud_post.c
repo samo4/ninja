@@ -135,13 +135,12 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     const struct zbus_channel *chan;
 #if defined(CONFIG_APP_MOTION)
-    #define ENV_MSG_TYPE struct motion_msg
+#define ENV_MSG_TYPE struct motion_msg
 #elif defined(CONFIG_APP_ENVIRONMENTAL)
-    #define ENV_MSG_TYPE struct environmental_msg
+#define ENV_MSG_TYPE struct environmental_msg
 #endif
 #if defined(CONFIG_LOCATION)
-    uint8_t
-        msg_buf[MAX(sizeof(ENV_MSG_TYPE), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
+    uint8_t msg_buf[MAX(sizeof(ENV_MSG_TYPE), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
 #else
     uint8_t msg_buf[MAX(sizeof(ENV_MSG_TYPE), sizeof(struct network_msg))];
 #endif

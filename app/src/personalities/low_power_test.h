@@ -45,10 +45,10 @@ ZBUS_CHAN_DECLARE(timer_chan);
 /* X-macro: subscribe to timer (self), sensor (motion or environmental),
  * network (connect/disconnect events), and cloud_post (POST done).
  */
-#define LOW_POWER_CHANNEL_LIST(X)             \
-    X(timer_chan, struct low_power_timer_msg) \
-    X(cloud_post_chan, struct cloud_post_msg) \
-    IF_ENABLED(CONFIG_APP_MOTION, (X(motion_chan, struct motion_msg))) \
+#define LOW_POWER_CHANNEL_LIST(X)                                                           \
+    X(timer_chan, struct low_power_timer_msg)                                               \
+    X(cloud_post_chan, struct cloud_post_msg)                                               \
+    IF_ENABLED(CONFIG_APP_MOTION, (X(motion_chan, struct motion_msg)))                      \
     IF_ENABLED(CONFIG_APP_ENVIRONMENTAL, (X(environmental_chan, struct environmental_msg))) \
     X(network_chan, struct network_msg)
 
