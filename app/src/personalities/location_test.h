@@ -69,6 +69,7 @@ struct location_test_state_object {
     /* Personality fields */
     uint32_t sample_interval_sec;
     bool location_received;
+    bool use_cellular_next;
 };
 
 void location_test_init(struct location_test_state_object *state);

@@ -169,17 +169,11 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
 #if defined(CONFIG_LOCATION)
         else if (chan == &location_chan) {
             const struct location_msg *msg = (const struct location_msg *)msg_buf;
-            if (msg->type == LOCATION_GNSS_DATA) {
+            if (msg->type == LOCATION_DATA) {
                 mod.location_received = true;
                 mod.location_latitude = msg->gnss_data.latitude;
                 mod.location_longitude = msg->gnss_data.longitude;
                 mod.location_accuracy = msg->gnss_data.accuracy;
-            }
-            /* LOCATION_SEARCH_DONE always follows a search — trigger send
-             * even if no fix was obtained (location fields will be 0).
-             */
-            if (msg->type == LOCATION_SEARCH_DONE) {
-                mod.location_received = true;
             }
         }
 #endif

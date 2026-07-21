@@ -1,0 +1,106 @@
+#
+# Copyright (c) 2025 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menuconfig APP_LOCATION_CLOUD
+	bool "Location cloud module"
+	depends on LOCATION
+	help
+	  Unified module that handles cloud communication for location services.
+	  Handles A-GNSS assistance data fetching — when the GNSS subsystem
+	  needs assistance data (ephemerides, almanacs, UTC parameters, etc.),
+	  this module fetches the data from a configurable HTTP endpoint (proxy
+	  server) and feeds it back to the GNSS subsystem via
+	  location_agnss_data_process().  Also handles cellular/Wi-Fi cloud
+	  location — when cellular and/or Wi-Fi scanning data is available,
+	  this module sends the data to a configurable cloud positioning service
+	  and feeds the response back via location_cloud_location_ext_result_set().
+
+	  This module is designed as a drop-in alternative to nRF Cloud's
+	  location services. When enabled, it handles LOCATION_AGNSS_REQUEST and
+	  LOCATION_CLOUD_REQUEST messages from the location module independently
+	  of nRF Cloud.
+
+if APP_LOCATION_CLOUD
+
+# ── Shared server settings (both endpoints on the same server) ──────────
+
+config APP_LOCATION_CLOUD_HOST
+	string "Proxy server hostname"
+	default "balirkaback.azurewebsites.net"
+	help
+	  Hostname of the proxy server used for both A-GNSS and cellular/Wi-Fi
+	  cloud positioning.
+
+config APP_LOCATION_CLOUD_PORT
+	int "Proxy server port"
+	default 443
+	range 1 65535
+	help
+	  Port of the proxy server.
+
+config APP_LOCATION_CLOUD_SEC_TAG
+	int "Proxy server TLS security tag"
+	default 168448
+	help
+	  Security tag for TLS connection to the proxy server.
+	  The corresponding CA certificate must be provisioned.
+
+# ── A-GNSS settings ──────────────────────────────────────────────────────
+
+config APP_LOCATION_CLOUD_AGNSS_URL
+	string "A-GNSS proxy URL path"
+	default "/api/agnss"
+	help
+	  URL path of the A-GNSS proxy endpoint.
+	  The A-GNSS request parameters will be sent to this endpoint.
+
+config APP_LOCATION_CLOUD_AGNSS_BUFFER_SIZE
+	int "A-GNSS response buffer size"
+	default 3800
+	help
+	  Maximum size of the A-GNSS data response buffer.
+	  The default 3800 bytes matches the nRF Cloud AGNSS data size.
+
+# ── Cellular cloud location settings ─────────────────────────────────────
+
+config APP_LOCATION_CLOUD_CELLULAR_URL
+	string "Cellular cloud location proxy URL path"
+	default "/api/cell"
+	help
+	  URL path of the cellular cloud location endpoint.
+	  Cellular and Wi-Fi scanning data will be sent to this endpoint.
+
+config APP_LOCATION_CLOUD_CELLULAR_BUFFER_SIZE
+	int "Cellular cloud location response buffer size"
+	default 2048
+	help
+	  Maximum size of the cellular cloud location response buffer.
+
+# ── Thread and watchdog settings ─────────────────────────────────────────
+
+config APP_LOCATION_CLOUD_THREAD_STACK_SIZE
+	int "Thread stack size"
+	default 8192
+	help
+	  Stack size for the location cloud module thread.
+
+config APP_LOCATION_CLOUD_WATCHDOG_TIMEOUT_SECONDS
+	int "Watchdog timeout"
+	default 120
+	help
+	  Timeout in seconds for the location cloud module watchdog.
+
+config APP_LOCATION_CLOUD_MSG_PROCESSING_TIMEOUT_SECONDS
+	int "Maximum message processing time"
+	default 60
+	help
+	  Maximum time allowed for processing a single message.
+
+module = APP_LOCATION_CLOUD
+module-str = Location cloud
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # APP_LOCATION_CLOUD

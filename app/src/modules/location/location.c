@@ -148,18 +148,6 @@ static void agnss_request_send(const struct nrf_modem_gnss_agnss_data_frame *agn
     }
 }
 
-static void gnss_location_send(const struct location_data *location_data) {
-    struct location_msg location_msg = {
-        .type = LOCATION_GNSS_DATA, .gnss_data = *location_data, .timestamp = k_uptime_get()};
-
-    int err = zbus_chan_pub(&location_chan, &location_msg, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("zbus_chan_pub, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
-}
-
 static void message_send(enum location_msg_type msg_type) {
     struct location_msg location_msg = {.type = msg_type};
     int err = zbus_chan_pub(&location_chan, &location_msg, PUB_TIMEOUT);
@@ -257,6 +245,25 @@ static enum smf_state_result state_location_search_inactive_run(void *obj) {
             smf_set_state(SMF_CTX(state_object), &states[STATE_LOCATION_SEARCH_ACTIVE]);
 
             return SMF_EVENT_HANDLED;
+        } else if (location_msg->type == LOCATION_CELLULAR_SEARCH_TRIGGER) {
+            struct location_config config;
+            enum location_method methods[] = {LOCATION_METHOD_CELLULAR};
+
+            LOG_DBG("Cellular location trigger received");
+
+            location_config_defaults_set(&config, 1, methods);
+
+            err = location_request(&config);
+            if (err) {
+                LOG_WRN("location_request, error: %d", err);
+                SEND_FATAL_ERROR();
+
+                return SMF_EVENT_HANDLED;
+            }
+
+            smf_set_state(SMF_CTX(state_object), &states[STATE_LOCATION_SEARCH_ACTIVE]);
+
+            return SMF_EVENT_HANDLED;
         }
     }
 
@@ -274,7 +281,8 @@ static enum smf_state_result state_location_search_active_run(void *obj) {
 
     if (state_object->chan == &location_chan) {
         const struct location_msg *location_msg = (const struct location_msg *)state_object->msg_buf;
-        if (location_msg->type == LOCATION_SEARCH_TRIGGER || location_msg->type == LOCATION_GNSS_SEARCH_TRIGGER) {
+        if (location_msg->type == LOCATION_SEARCH_TRIGGER || location_msg->type == LOCATION_GNSS_SEARCH_TRIGGER ||
+            location_msg->type == LOCATION_CELLULAR_SEARCH_TRIGGER) {
             LOG_DBG("Location trigger received while active, ignoring");
         } else if (location_msg->type == LOCATION_SEARCH_CANCEL) {
             LOG_DBG("Location search cancel received, cancelling location request");
@@ -343,6 +351,24 @@ static void location_event_handler(const struct location_event_data *event_data)
                     (double)event_data->location.longitude, (double)event_data->location.accuracy,
                     location_method_str(event_data->method));
 
+            /* Publish location data for all methods (GNSS, cellular, Wi-Fi).
+             * Receivers check msg->gnss_data.datetime.valid to see if date/time
+             * information is available.
+             */
+            {
+                struct location_msg data_msg = {
+                    .type = LOCATION_DATA,
+                    .gnss_data = event_data->location,
+                    .timestamp = k_uptime_get(),
+                };
+                int err = zbus_chan_pub(&location_chan, &data_msg, PUB_TIMEOUT);
+                if (err) {
+                    LOG_ERR("zbus_chan_pub, error: %d", err);
+                    SEND_FATAL_ERROR();
+                    return;
+                }
+            }
+
 #if defined(CONFIG_LOCATION_METHOD_GNSS)
             if (event_data->method == LOCATION_METHOD_GNSS) {
                 struct nrf_modem_gnss_pvt_data_frame pvt_data = event_data->location.details.gnss.pvt_data;
@@ -351,9 +377,6 @@ static void location_event_handler(const struct location_event_data *event_data)
                 } else {
                     LOG_WRN("Got GNSS location without valid time data");
                 }
-
-                /* Send GNSS location data to cloud for reporting */
-                gnss_location_send(&event_data->location);
             }
 #endif /* CONFIG_LOCATION_METHOD_GNSS */
 

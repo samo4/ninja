@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  *
  * Location Test personality:
- *   Request GNSS fix → post to cloud → turn off modem → sleep → repeat.
+ *   Alternates between cellular-only and GNSS-only location requests.
+ *   Cellular → GNSS → Cellular → GNSS → ...
+ *   Each result is posted to cloud → modem off → sleep → repeat.
  *   Reuses cloud_post for HTTP communication — location data is forwarded
  *   via the location_chan that cloud_post now also observes.
  *
  *   State machine:
- *     SAMPLING         — fire LOCATION_GNSS_SEARCH_TRIGGER
- *     WAITING_LOCATION — wait for LOCATION_GNSS_DATA or LOCATION_SEARCH_DONE
+ *     SAMPLING         — fire LOCATION_CELLULAR_SEARCH_TRIGGER or LOCATION_GNSS_SEARCH_TRIGGER
+ *     WAITING_LOCATION — wait for LOCATION_DATA or timer expiry
  *     WAITING_CLOUD    — cloud_post handles LTE connect + POST, personality
  *                        waits for SEND_DONE / SEND_FAILED
  *     DISCONNECTING    — waiting for NETWORK_DISCONNECTED
@@ -68,14 +70,14 @@ const char *personality_state_str(void) { return lt_state_name ? lt_state_name :
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
-static void fire_location_search(void) {
+static void fire_location_search(enum location_msg_type type) {
     const struct location_msg req = {
-        .type = LOCATION_GNSS_SEARCH_TRIGGER,
+        .type = type,
     };
 
     int err = zbus_chan_pub(&location_chan, &req, PUB_TIMEOUT);
     if (err) {
-        LOG_ERR("Failed to publish LOCATION_GNSS_SEARCH_TRIGGER, error: %d", err);
+        LOG_ERR("Failed to publish location trigger (%d), error: %d", type, err);
         SEND_FATAL_ERROR();
         return;
     }
@@ -118,7 +120,16 @@ static void sampling_entry(void *o) {
     lt_state_name = "sampling";
     LOG_INF("LT: sampling (cycle every %us)", state->sample_interval_sec);
     state->location_received = false;
-    fire_location_search();
+
+    if (state->use_cellular_next) {
+        LOG_INF("LT: requesting cellular location");
+        fire_location_search(LOCATION_CELLULAR_SEARCH_TRIGGER);
+    } else {
+        LOG_INF("LT: requesting GNSS location");
+        fire_location_search(LOCATION_GNSS_SEARCH_TRIGGER);
+    }
+    state->use_cellular_next = !state->use_cellular_next;
+
     /* Arm a fallback timer in case location never comes back (2 min default + margin). */
     timer_arm(150);
     lt_state_name = "waiting_location";
@@ -131,30 +142,37 @@ static enum smf_state_result waiting_location_run(void *o) {
     if (state->chan == &location_chan) {
         const struct location_msg *msg = (const struct location_msg *)state->msg_buf;
 
-        if (msg->type == LOCATION_GNSS_DATA) {
-            LOG_INF("LT: GNSS fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude,
-                    msg->gnss_data.longitude, (double)msg->gnss_data.accuracy);
+        if (msg->type == LOCATION_DATA) {
+            LOG_INF("fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude, msg->gnss_data.longitude,
+                    (double)msg->gnss_data.accuracy);
             state->location_received = true;
-            return SMF_EVENT_HANDLED;
-        }
-
-        if (msg->type == LOCATION_SEARCH_DONE) {
-            if (state->location_received) {
-                LOG_INF("LT: location search done — data was sent to cloud_post");
-            } else {
-                LOG_WRN("LT: location search done — no fix obtained, sending empty");
-            }
-            /* cloud_post will auto-trigger on location data once LTE is connected. */
             lt_state_name = "waiting_cloud";
             timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
             return SMF_EVENT_HANDLED;
         }
+
+        /* Ignore LOCATION_SEARCH_DONE — the personality only cares about
+         * actual location data (success) or the fallback timer (failure).
+         * This avoids racing with async cloud geolocation for cellular.
+         */
+        if (msg->type == LOCATION_SEARCH_DONE) {
+            return SMF_EVENT_HANDLED;
+        }
     }
 
     if (state->chan == &timer_chan) {
-        LOG_WRN("LT: location timeout — no fix obtained, sending empty");
-        /* cloud_post will auto-trigger on whatever location data we have (probably empty). */
+        LOG_WRN("location timeout — no fix obtained, sending empty");
+        /* Publish zero-filled LOCATION_DATA to trigger cloud_post to send
+         * with empty coordinates. This replaces the old LOCATION_SEARCH_DONE
+         * trigger that fired prematurely for cellular.
+         */
+        const struct location_msg empty = {
+            .type = LOCATION_DATA,
+            .gnss_data = {0},
+            .timestamp = k_uptime_get(),
+        };
+        zbus_chan_pub(&location_chan, &empty, PUB_TIMEOUT);
         lt_state_name = "waiting_cloud";
         timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
@@ -288,6 +306,7 @@ static void rebooting_entry(void *o) {
 void location_test_init(struct location_test_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     state->location_received = false;
+    state->use_cellular_next = true;
     lt_state_name = "waiting_module";
     smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_MODULE]);
 }

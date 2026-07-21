@@ -54,10 +54,14 @@ enum location_msg_type {
      */
     LOCATION_AGNSS_REQUEST,
 
-    /* GNSS location data has been successfully obtained. The location data is found in
-     * the .gnss_data field of the message.
+    /* Location data has been successfully obtained from any method (GNSS, cellular, etc.).
+     * The location data is found in the .gnss_data field of the message.
+     * Check msg->gnss_data.datetime.valid to determine whether the message
+     * carries valid date/time information that can be applied to system time.
+     * Personalities should listen for this to detect success, rather than relying
+     * on LOCATION_SEARCH_DONE which only indicates the library finished its operation.
      */
-    LOCATION_GNSS_DATA,
+    LOCATION_DATA,
 
     /* Location module is ready to use */
     LOCATION_MODULE_READY,
@@ -75,6 +79,12 @@ enum location_msg_type {
      * LOCATION_GNSS_DATA. On failure/timeout, LOCATION_SEARCH_DONE is published.
      */
     LOCATION_GNSS_SEARCH_TRIGGER,
+
+    /* Request a dedicated cellular-only location. Unlike LOCATION_SEARCH_TRIGGER, this
+     * only uses cellular tower triangulation with no GNSS fallback. On failure/timeout,
+     * LOCATION_SEARCH_DONE is published.
+     */
+    LOCATION_CELLULAR_SEARCH_TRIGGER,
 
     /* Request to cancel an ongoing location search operation.
      *
@@ -193,8 +203,9 @@ struct location_msg {
          */
         struct nrf_modem_gnss_agnss_data_frame agnss_request;
 
-        /** Contains GNSS location data including coordinates, accuracy and timing.
-         *  gnss_data is valid for LOCATION_GNSS_DATA events.
+        /** Contains location data including coordinates, accuracy, datetime and validity.
+         *  gnss_data is valid for LOCATION_DATA events.
+         *  Check gnss_data.datetime.valid to see if the datetime is usable.
          */
         struct location_data gnss_data;
     };
@@ -203,7 +214,6 @@ struct location_msg {
      *  This is either:
      * - Unix time in milliseconds if the system clock was synchronized at sampling time, or
      * - Uptime in milliseconds if the system clock was not synchronized at sampling time.
-     * Only valid for LOCATION_GNSS_DATA events.
      */
     int64_t timestamp;
 };

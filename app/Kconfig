@@ -12,7 +12,7 @@ rsource "src/modules/location/Kconfig.location"
 rsource "src/modules/led/Kconfig.led"
 rsource "src/modules/environmental/Kconfig.environmental"
 rsource "src/modules/cloud_post/Kconfig.cloud_post"
-rsource "src/modules/agnss_data/Kconfig.agnss_data"
+rsource "src/modules/location_cloud/Kconfig.location_cloud"
 
 endmenu
 
