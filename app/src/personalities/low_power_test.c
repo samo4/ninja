@@ -23,7 +23,11 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
+#endif
 #include "low_power_test.h"
 #include "network.h"
 
@@ -70,13 +74,21 @@ const char *personality_state_str(void) { return lp_state_name ? lp_state_name :
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 static void fire_sample(struct low_power_state_object *state) {
+#if defined(CONFIG_APP_MOTION)
+    struct motion_msg req = {
+        .type = MOTION_SAMPLE_REQUEST,
+    };
+
+    int err = zbus_chan_pub(&motion_chan, &req, PUB_TIMEOUT);
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
     struct environmental_msg req = {
         .type = ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
     };
 
     int err = zbus_chan_pub(&environmental_chan, &req, PUB_TIMEOUT);
+#endif
     if (err) {
-        LOG_ERR("Failed to publish environmental request, error: %d", err);
+        LOG_ERR("Failed to publish sensor request, error: %d", err);
         SEND_FATAL_ERROR();
         return;
     }

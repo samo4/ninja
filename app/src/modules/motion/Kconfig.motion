@@ -1,0 +1,32 @@
+#
+# Copyright (c) 2026 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menuconfig APP_MOTION
+	bool "Motion module (LIS2DTW12)"
+	depends on SPI
+	help
+	  Enable the motion module, which handles the LIS2DTW12
+	  accelerometer / temperature sensor over SPI.
+
+if APP_MOTION
+
+config APP_MOTION_THREAD_STACK_SIZE
+	int "Thread stack size"
+	default 1024
+
+config APP_MOTION_WATCHDOG_TIMEOUT_SECONDS
+	int "Watchdog timeout"
+	default 120
+
+config APP_MOTION_MSG_PROCESSING_TIMEOUT_SECONDS
+	int "Maximum message processing time"
+	default 3
+
+module = APP_MOTION
+module-str = MOTION
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # APP_MOTION

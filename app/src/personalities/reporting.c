@@ -19,7 +19,11 @@
 #include <zephyr/sys/reboot.h>
 
 #include "app_common.h"
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
+#endif
 #include "led.h"
 #include "reporting.h"
 
@@ -76,14 +80,22 @@ static void fire_sample(struct reporting_state *state) {
         return;
     }
 
-    /* Request one sensor sample — environmental module responds once */
+    /* Request one sensor sample */
+#if defined(CONFIG_APP_MOTION)
+    struct motion_msg req = {
+        .type = MOTION_SAMPLE_REQUEST,
+    };
+
+    err = zbus_chan_pub(&motion_chan, &req, PUB_TIMEOUT);
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
     struct environmental_msg req = {
         .type = ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
     };
 
     err = zbus_chan_pub(&environmental_chan, &req, PUB_TIMEOUT);
+#endif
     if (err) {
-        LOG_ERR("Failed to publish environmental request, error: %d", err);
+        LOG_ERR("Failed to publish sensor request, error: %d", err);
         SEND_FATAL_ERROR();
         return;
     }

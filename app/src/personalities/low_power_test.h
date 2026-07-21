@@ -19,7 +19,11 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
+#endif
 #include "led.h"
 #include "network.h"
 
@@ -38,14 +42,17 @@ struct low_power_timer_msg {
 
 ZBUS_CHAN_DECLARE(timer_chan);
 
-/* X-macro: subscribe to timer (self), environmental (sensor samples),
+/* X-macro: subscribe to timer (self), sensor (motion or environmental),
  * network (connect/disconnect events), and cloud_post (POST done).
  */
 #define LOW_POWER_CHANNEL_LIST(X)             \
     X(timer_chan, struct low_power_timer_msg) \
     X(cloud_post_chan, struct cloud_post_msg) \
-    X(environmental_chan, struct environmental_msg) \
+    IF_ENABLED(CONFIG_APP_MOTION, (X(motion_chan, struct motion_msg))) \
+    IF_ENABLED(CONFIG_APP_ENVIRONMENTAL, (X(environmental_chan, struct environmental_msg))) \
     X(network_chan, struct network_msg)
+
+#define LOW_POWER_MAX_MSG_SIZE MAX_MSG_SIZE_FROM_LIST(LOW_POWER_CHANNEL_LIST)
 
 #define LOW_POWER_MAX_MSG_SIZE MAX_MSG_SIZE_FROM_LIST(LOW_POWER_CHANNEL_LIST)
 

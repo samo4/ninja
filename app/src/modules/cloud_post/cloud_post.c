@@ -16,7 +16,11 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
+#endif
 #if defined(CONFIG_LOCATION)
 #include "location.h"
 #endif
@@ -30,7 +34,11 @@ ZBUS_CHAN_DEFINE(cloud_post_chan, struct cloud_post_msg, NULL, NULL, ZBUS_OBSERV
 
 ZBUS_MSG_SUBSCRIBER_DEFINE(cloud_post);
 
+#if defined(CONFIG_APP_MOTION)
+ZBUS_CHAN_ADD_OBS(motion_chan, cloud_post, 0);
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 ZBUS_CHAN_ADD_OBS(environmental_chan, cloud_post, 0);
+#endif
 #if defined(CONFIG_LOCATION)
 ZBUS_CHAN_ADD_OBS(location_chan, cloud_post, 0);
 #endif
@@ -42,7 +50,11 @@ static struct {
     bool connected;
     bool connect_requested;
     bool env_received;
+#if defined(CONFIG_APP_MOTION)
+    struct motion_msg env_data;
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
     struct environmental_msg env_data;
+#endif
     bool location_received;
     double location_latitude;
     double location_longitude;
@@ -122,11 +134,16 @@ TASK_WDT_CALLBACK_DEFINE(cloud_post)
 static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
     int err;
     const struct zbus_channel *chan;
+#if defined(CONFIG_APP_MOTION)
+    #define ENV_MSG_TYPE struct motion_msg
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
+    #define ENV_MSG_TYPE struct environmental_msg
+#endif
 #if defined(CONFIG_LOCATION)
     uint8_t
-        msg_buf[MAX(sizeof(struct environmental_msg), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
+        msg_buf[MAX(sizeof(ENV_MSG_TYPE), MAX(sizeof(struct network_msg), sizeof(struct location_msg)))];
 #else
-    uint8_t msg_buf[MAX(sizeof(struct environmental_msg), sizeof(struct network_msg))];
+    uint8_t msg_buf[MAX(sizeof(ENV_MSG_TYPE), sizeof(struct network_msg))];
 #endif
 
     ARG_UNUSED(arg1);
@@ -177,6 +194,16 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
             }
         }
 #endif
+#if defined(CONFIG_APP_MOTION)
+        else if (chan == &motion_chan) {
+            const struct motion_msg *msg = (const struct motion_msg *)msg_buf;
+            if (msg->type == MOTION_TEMPERATURE_DATA) {
+                mod.env_received = true;
+                mod.env_data = *msg;
+                LOG_DBG("Motion temp: %.2f C", msg->temperature);
+            }
+        }
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
         else if (chan == &environmental_chan) {
             const struct environmental_msg *msg = (const struct environmental_msg *)msg_buf;
             if (msg->type == ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE) {
@@ -185,6 +212,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
                 LOG_DBG("Env: %.2f C", msg->temperature);
             }
         }
+#endif
 
 #if defined(CONFIG_LOCATION)
         if (mod.location_received) {

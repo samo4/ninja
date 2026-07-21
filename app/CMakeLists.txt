@@ -20,6 +20,7 @@ add_subdirectory(src/modules/network)
 
 # Optional modules
 add_subdirectory_ifdef(CONFIG_APP_ENVIRONMENTAL src/modules/environmental)
+add_subdirectory_ifdef(CONFIG_APP_MOTION src/modules/motion)
 add_subdirectory_ifdef(CONFIG_APP_LED src/modules/led)
 add_subdirectory_ifdef(CONFIG_LOCATION src/modules/location)
 add_subdirectory_ifdef(CONFIG_APP_CLOUD_POST src/modules/cloud_post)

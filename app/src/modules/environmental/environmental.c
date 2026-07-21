@@ -5,7 +5,6 @@
  */
 
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/smf.h>
@@ -49,11 +48,7 @@ struct environmental_state_object {
     struct smf_ctx ctx;              // must be first
     const struct zbus_channel *chan; // channel type that a message was received on
     uint8_t msg_buf[MAX_MSG_SIZE];
-#if !defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
     const struct device *const bme680;
-#else
-    struct spi_dt_spec lis2dtw12_spi;
-#endif
 };
 
 // Forward declarations of state handlers
@@ -64,86 +59,10 @@ static const struct smf_state states[] = {
     [STATE_RUNNING] = SMF_CREATE_STATE(NULL, state_running_run, NULL, NULL, NULL),
 };
 
-#define LIS2DTW12_SPI_READ (1 << 7)
-#define LIS2DTW12_REG_WHO_AM_I 0x0F
-#define LIS2DTW12_ID_VALUE 0x44
-
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-// Read len bytes starting at reg using the proven dual-buffer SPI pattern
-static int lis2dtw12_spi_read(const struct spi_dt_spec *spi, uint8_t reg, uint8_t *data, uint16_t len) {
-    uint8_t tx_buf[2] = {reg | LIS2DTW12_SPI_READ, 0};
-    const struct spi_buf tx_bufs = {.buf = tx_buf, .len = 2};
-    const struct spi_buf_set tx = {.buffers = &tx_bufs, .count = 1};
-    const struct spi_buf rx_buf[2] = {
-        {.buf = NULL, .len = 1},
-        {.buf = data, .len = len}, // actual data
-    };
-    const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
-    if (spi_transceive(spi->bus, &spi->config, &tx, &rx)) {
-        return -EIO;
-    }
-    return 0;
-}
-
-static double read_lis2dtw12_temperature(const struct spi_dt_spec *spi) {
-    // 0x0D is OUT_T_L. Bit 7 (0x80) is the SPI Read command flag.
-    uint8_t temp_bytes[2];
-    int err;
-
-    err = lis2dtw12_spi_read(spi, 0x0D, temp_bytes, 2);
-    if (err) {
-        LOG_ERR("LIS2DTW12 temperature SPI read failed: %d", err);
-        return -1.0;
-    }
-
-    /* temp_bytes[0] = OUT_T_L (lower nibble @ bits [3:0], bits [7:4] reserved) */
-    /* temp_bytes[1] = OUT_T_H (upper 8 bits of 12-bit temp) */
-
-    // Combine: (OUT_T_H << 4) | (OUT_T_L & 0x0F) — mask to lower nibble only
-    uint16_t raw = ((uint16_t)temp_bytes[1] << 4) | (temp_bytes[0] & 0x0F);
-
-    // Sign-extend 12-bit two's complement to 16-bit via left-shift + arithmetic right-shift
-    int16_t raw_12bit = (int16_t)(raw << 4) >> 4;
-
-    /* Sensitivity scale: 0.0625 °C/LSB (which is exactly 1.0 / 16.0) */
-    /* Center offset: 0 LSB = 25.0 °C */
-    return ((double)raw_12bit / 16.0) + 25.0;
-}
-
-bool verify_lis2dtw12_identity(const struct spi_dt_spec *spi) {
-    // LIS2DTW12 boots in I2C mode by default and only switches to SPI after detecting a high-to-low transition on CS.
-
-    uint8_t dummy;
-    (void)lis2dtw12_spi_read(spi, 0x00, &dummy, 1);
-
-    uint8_t chip_id;
-    int err = lis2dtw12_spi_read(spi, LIS2DTW12_REG_WHO_AM_I, &chip_id, 1);
-    if (err) {
-        LOG_ERR("SPI communication failed entirely: %d", err);
-        return false;
-    }
-
-    if (chip_id == LIS2DTW12_ID_VALUE) {
-        LOG_INF("Verification Success! Found LIS2DTW12 (ID: 0x%02X)", chip_id);
-        return true;
-    } else {
-        LOG_WRN("Verification Failed! Expected 0x44, but received: 0x%02X", chip_id);
-        return false;
-    }
-}
-#endif
-
 static void sample_sensors(struct environmental_state_object *state) {
     int err;
     double temperature;
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    verify_lis2dtw12_identity(&state->lis2dtw12_spi);
-    temperature = read_lis2dtw12_temperature(&state->lis2dtw12_spi);
-    if (temperature < -40.0) {
-        SEND_FATAL_ERROR();
-        return;
-    }
-#else
+
     struct sensor_value temp = {0};
     err = sensor_sample_fetch(state->bme680);
     if (err) {
@@ -159,7 +78,6 @@ static void sample_sensors(struct environmental_state_object *state) {
         return;
     }
     temperature = sensor_value_to_double(&temp);
-#endif
 
     struct environmental_msg msg = {
         .type = ENVIRONMENTAL_SENSOR_SAMPLE_RESPONSE,
@@ -197,32 +115,10 @@ static void env_module_thread(void) {
     TASK_WDT_TIMEOUTS(APP_ENVIRONMENTAL);
     TASK_WDT_ZBUS_TIMEOUT;
     static struct environmental_state_object environmental_state = {
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-        .lis2dtw12_spi =
-            {
-                .bus = DEVICE_DT_GET(DT_NODELABEL(spi2)),
-                .config =
-                    {
-                        .frequency = 1000000,
-                        .operation = SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA,
-                        .slave = 0,
-                        .cs = SPI_CS_CONTROL_INIT(DT_NODELABEL(lis2dtw12)),
-                    },
-            },
-#else
         .bme680 = DEVICE_DT_GET(DT_NODELABEL(bme680)),
-#endif
     };
 
     LOG_DBG("Environmental module task started");
-
-#if defined(CONFIG_APP_ENVIRONMENTAL_LIS2DTW12)
-    if (!spi_is_ready_dt(&environmental_state.lis2dtw12_spi)) {
-        LOG_ERR("LIS2DTW12 SPI bus not ready");
-        SEND_FATAL_ERROR();
-        return;
-    }
-#endif
 
     TASK_WDT_ADD(env, wdt_timeout_ms)
 

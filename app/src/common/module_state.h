@@ -54,6 +54,11 @@ const char *location_state_str(void);
 const char *environmental_state_str(void);
 
 /**
+ * @brief Optional: motion module FSM state string.
+ */
+const char *motion_state_str(void);
+
+/**
  * @brief Format a combined one-line state report into a buffer.
  *
  * Example output:

@@ -24,7 +24,11 @@
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
+#endif
 #include "led.h"
 
 #ifdef __cplusplus

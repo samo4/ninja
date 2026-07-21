@@ -19,6 +19,7 @@ __attribute__((weak)) const char *personality_state_str(void) { return "?"; }
 __attribute__((weak)) const char *network_state_str(void) { return "?"; }
 __attribute__((weak)) const char *location_state_str(void) { return "?"; }
 __attribute__((weak)) const char *environmental_state_str(void) { return "?"; }
+__attribute__((weak)) const char *motion_state_str(void) { return "?"; }
 
 /* ── State report formatting ────────────────────────────────────── */
 
@@ -42,6 +43,11 @@ int state_report_format(char *buf, size_t len) {
     const char *env = environmental_state_str();
     if (strcmp(env, "?") != 0) {
         off += snprintf(buf + off, len - off, " env:%s", env);
+    }
+
+    const char *mot = motion_state_str();
+    if (strcmp(mot, "?") != 0) {
+        off += snprintf(buf + off, len - off, " mot:%s", mot);
     }
 
     return off;
