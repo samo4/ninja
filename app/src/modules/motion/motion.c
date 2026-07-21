@@ -366,8 +366,7 @@ static enum smf_state_result state_running_run(void *obj) {
 #if defined(CONFIG_LOCATION)
     if (&location_chan == state_obj->chan) {
         const struct location_msg *msg = (const struct location_msg *)state_obj->msg_buf;
-        if (msg->type == LOCATION_CELLULAR_SEARCH_TRIGGER ||
-            msg->type == LOCATION_GNSS_SEARCH_TRIGGER ||
+        if (msg->type == LOCATION_CELLULAR_SEARCH_TRIGGER || msg->type == LOCATION_GNSS_SEARCH_TRIGGER ||
             msg->type == LOCATION_SEARCH_TRIGGER) {
             sample_temperature();
             return SMF_EVENT_HANDLED;
