@@ -78,27 +78,7 @@ static void publish_result(enum agnss_data_msg_type type, int http_status) {
  * A-GNSS data fetching
  * -------------------------------------------------------------------------*/
 
-/**
- * @brief Fetch A-GNSS data from the configured proxy server.
- *
- * Sends the A-GNSS request parameters to the proxy HTTP endpoint.
- * The proxy is expected to return raw A-GNSS data that can be passed
- * directly to location_agnss_data_process().
- *
- * @param agnss_req  Pointer to the A-GNSS request parameters from the GNSS
- *                   subsystem.
- *
- * @return 0 on success, a negative errno on failure.
- */
 static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_req) {
-    int err;
-
-    /*
-     * Serialise the A-GNSS request parameters into a JSON payload that
-     * the proxy server understands.  The proxy is expected to return
-     * raw A-GNSS assistance data (the same format that
-     * location_agnss_data_process() expects).
-     */
     char request_body[512];
     int body_len = snprintf(request_body, sizeof(request_body), "{");
     body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "\"data_flags\":%u,",
@@ -123,35 +103,24 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         return -ENOMEM;
     }
 
-    /*
-     * Fetch all A-GNSS data in byte-range chunks via the utility function.
-     * The nRF91 modem's TLS receive buffer is ~2 KB, so each chunk request
-     * stays well under that limit.  The function concatenates all chunks
-     * into a single buffer for processing.
-     */
 #define AGNSS_CHUNK_SIZE 1400
-
     static uint8_t full_buf[AGNSS_DATA_BUF_SIZE];
     size_t total_len = 0;
-
-    err = http_fetch_chunked(CONFIG_APP_AGNSS_DATA_HOST, CONFIG_APP_AGNSS_DATA_PORT, CONFIG_APP_AGNSS_DATA_URL,
-                             CONFIG_APP_AGNSS_DATA_SEC_TAG, request_body, body_len, AGNSS_CHUNK_SIZE, full_buf,
-                             sizeof(full_buf), &total_len);
+    int err = http_fetch_chunked(CONFIG_APP_AGNSS_DATA_HOST, CONFIG_APP_AGNSS_DATA_PORT, CONFIG_APP_AGNSS_DATA_URL,
+                                 CONFIG_APP_AGNSS_DATA_SEC_TAG, request_body, body_len, AGNSS_CHUNK_SIZE, full_buf,
+                                 sizeof(full_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         return err;
     }
-
     LOG_INF("A-GNSS data fetched: %zu bytes", total_len);
-
-    /* Feed the complete received data to the GNSS subsystem. */
     err = location_agnss_data_process(full_buf, total_len);
     if (err) {
         LOG_ERR("location_agnss_data_process failed: %d", err);
         return err;
     }
 
-    LOG_INF("A-GNSS data fetched and processed successfully");
+    LOG_DBG("A-GNSS data fetched and processed successfully");
     return 0;
 }
 
@@ -160,28 +129,20 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
  * -------------------------------------------------------------------------*/
 
 static void handle_agnss_request(const struct nrf_modem_gnss_agnss_data_frame *agnss_req) {
-    int err;
-
     if (!mod.lte_connected) {
         LOG_DBG("LTE not connected, caching A-GNSS request for later");
-
         mod.cached_request = *agnss_req;
         mod.request_pending = true;
-
         request_lte_connect();
         return;
     }
-
-    err = fetch_agnss_data(agnss_req);
+    int err = fetch_agnss_data(agnss_req);
     if (err) {
         LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         publish_result(AGNSS_DATA_FETCH_FAILED, err);
         return;
     }
-
     publish_result(AGNSS_DATA_FETCH_DONE, 200);
-
-    /* Clear any previously cached request since we succeeded. */
     mod.request_pending = false;
 }
 
@@ -259,7 +220,6 @@ static void agnss_data_module_thread(void *arg1, void *arg2, void *arg3) {
         }
 
         uint8_t msg_buf[MAX(sizeof(struct location_msg), sizeof(struct network_msg))];
-
         err = zbus_sub_wait_msg(&agnss_data, &chan, msg_buf, zbus_wait_ms);
         if (err == -ENOMSG) {
             continue;
@@ -271,14 +231,12 @@ static void agnss_data_module_thread(void *arg1, void *arg2, void *arg3) {
 
         if (chan == &location_chan) {
             const struct location_msg *location_msg = (const struct location_msg *)msg_buf;
-
             if (location_msg->type == LOCATION_AGNSS_REQUEST) {
                 LOG_DBG("A-GNSS assistance request received");
                 handle_agnss_request(&location_msg->agnss_request);
             }
         } else if (chan == &network_chan) {
             const struct network_msg *network_msg = (const struct network_msg *)msg_buf;
-
             handle_network_event(network_msg);
         }
     }
