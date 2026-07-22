@@ -66,13 +66,14 @@ static void timer_arm(uint32_t delay_sec) {
 
 static void fire_sample(struct reporting_state *state) {
 #if defined(CONFIG_APP_LED)
+    LOG_INF("Setting LED to indicate sample request");
     struct led_msg led = {
         .type = LED_RGB_SET,
         .red = 0,
-        .green = 55,
+        .green = 100,
         .duration_on_msec = 250,
-        .duration_off_msec = 2000,
-        .repetitions = 10,
+        .duration_off_msec = 1000,
+        .repetitions = 20,
     };
 
     int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
