@@ -27,8 +27,12 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_LED)
+#include "led.h"
+#endif
 #include "location.h"
 #include "location_test.h"
+#include "motion.h"
 #include "network.h"
 
 LOG_MODULE_REGISTER(location_test, CONFIG_APP_LOG_LEVEL);
@@ -82,6 +86,13 @@ static void fire_location_search(enum location_msg_type type) {
         SEND_FATAL_ERROR();
         return;
     }
+
+    /* Sample the LIS2DTW12 temperature alongside the location request */
+    const struct motion_msg mot_req = {.type = MOTION_SAMPLE_REQUEST};
+    err = zbus_chan_pub(&motion_chan, &mot_req, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish motion sample request, error: %d", err);
+    }
 }
 
 static void request_disconnect(void) {
@@ -122,14 +133,14 @@ static const struct smf_state states[] = {
 static void sampling_entry(void *o) {
     struct location_test_state_object *state = (struct location_test_state_object *)o;
     lt_state_name = "sampling";
-    LOG_INF("LT: sampling (cycle every %us)", state->sample_interval_sec);
+    LOG_INF("sampling (cycle every %us)", state->sample_interval_sec);
     state->location_received = false;
-
+    state->is_gnss_search = !state->use_cellular_next;
     if (state->use_cellular_next) {
-        LOG_INF("LT: requesting cellular location");
+        LOG_INF("requesting cellular location");
         fire_location_search(LOCATION_CELLULAR_SEARCH_TRIGGER);
     } else {
-        LOG_INF("LT: requesting GNSS location");
+        LOG_INF("requesting GNSS location");
         fire_location_search(LOCATION_GNSS_SEARCH_TRIGGER);
     }
     state->use_cellular_next = !state->use_cellular_next;
@@ -149,6 +160,30 @@ static enum smf_state_result waiting_location_run(void *o) {
         if (msg->type == LOCATION_DATA) {
             LOG_INF("fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude, msg->gnss_data.longitude,
                     (double)msg->gnss_data.accuracy);
+
+#if defined(CONFIG_APP_LED)
+            /* Blink green LED on GNSS satellite count change */
+            if (state->is_gnss_search) {
+                int satellites = msg->gnss_data.details.gnss.satellites_tracked;
+                LOG_INF("GNSS satellites tracked: %d", satellites);
+                if (satellites > 0 && satellites != state->last_satellites_tracked) {
+                    state->last_satellites_tracked = satellites;
+                    const struct led_msg led = {
+                        .type = LED_RGB_SET,
+                        .red = 0,
+                        .green = 255,
+                        .duration_on_msec = 200,
+                        .duration_off_msec = 200,
+                        .repetitions = satellites,
+                    };
+                    int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
+                    if (err) {
+                        LOG_ERR("Failed to publish LED message, error: %d", err);
+                    }
+                }
+            }
+#endif /* CONFIG_APP_LED */
+
             state->location_received = true;
             lt_state_name = "waiting_cloud";
             timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
@@ -193,14 +228,14 @@ static enum smf_state_result waiting_cloud_run(void *o) {
         const struct cloud_post_msg *msg = (const struct cloud_post_msg *)state->msg_buf;
 
         if (msg->type == CLOUD_POST_SEND_DONE) {
-            LOG_INF("LT: cloud POST done (HTTP %d), disconnecting modem now", msg->http_status);
+            LOG_INF("cloud POST done (HTTP %d), disconnecting modem now", msg->http_status);
             request_disconnect();
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
             return SMF_EVENT_HANDLED;
         }
 
         if (msg->type == CLOUD_POST_SEND_FAILED) {
-            LOG_WRN("LT: cloud POST failed (%d), disconnecting anyway", msg->http_status);
+            LOG_WRN("cloud POST failed (%d), disconnecting", msg->http_status);
             request_disconnect();
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
             return SMF_EVENT_HANDLED;
@@ -208,7 +243,7 @@ static enum smf_state_result waiting_cloud_run(void *o) {
     }
 
     if (state->chan == &timer_chan) {
-        LOG_WRN("LT: fallback timeout expired, disconnecting modem");
+        LOG_WRN("fallback timeout expired, disconnecting modem");
         request_disconnect();
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
         return SMF_EVENT_HANDLED;
@@ -228,7 +263,7 @@ static enum smf_state_result disconnecting_run(void *o) {
     if (state->chan == &network_chan) {
         const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
         if (msg->type == NETWORK_DISCONNECTED) {
-            LOG_INF("LT: modem off, entering sleep");
+            LOG_INF("modem off, entering sleep");
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SLEEPING]);
             return SMF_EVENT_HANDLED;
         }
@@ -249,13 +284,13 @@ static enum smf_state_result waiting_module_run(void *o) {
         const struct network_msg msg = {.type = NETWORK_CONNECT};
         zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
         net_connect_requested = true;
-        LOG_INF("LT: requesting network connect for modem init");
+        LOG_INF("requesting network connect for modem init");
     }
 
     if (state->chan == &location_chan) {
         const struct location_msg *msg = (const struct location_msg *)state->msg_buf;
         if (msg->type == LOCATION_MODULE_READY) {
-            LOG_INF("LT: location module ready");
+            LOG_INF("ready");
             location_ready = true;
         }
     }
@@ -263,7 +298,7 @@ static enum smf_state_result waiting_module_run(void *o) {
     if (state->chan == &network_chan) {
         const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
         if (msg->type == NETWORK_CONNECTED) {
-            LOG_INF("LT: LTE connected");
+            LOG_INF("LTE connected");
             lte_ready = true;
         }
     }
@@ -271,7 +306,7 @@ static enum smf_state_result waiting_module_run(void *o) {
     /* Wait for both location module and LTE before starting search,
      * so A-GNSS data can be fetched immediately when requested. */
     if (location_ready && lte_ready) {
-        LOG_INF("LT: both ready, starting first search");
+        LOG_INF("both ready, starting first search");
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
         return SMF_EVENT_HANDLED;
     }
@@ -282,14 +317,14 @@ static void sleeping_entry(void *o) {
     struct location_test_state_object *state = (struct location_test_state_object *)o;
     lt_state_name = "sleeping";
     LOG_DBG("%s", __func__);
-    LOG_INF("LT: sleeping with modem off for %us — measure power now", state->sample_interval_sec);
+    LOG_INF("sleeping with modem off for %us — measure power now", state->sample_interval_sec);
     timer_arm(state->sample_interval_sec);
 }
 
 static enum smf_state_result sleeping_run(void *o) {
     struct location_test_state_object *state = (struct location_test_state_object *)o;
     if (state->chan == &timer_chan) {
-        LOG_INF("LT: sleep expired, reconnecting modem");
+        LOG_INF("sleep expired, reconnecting modem");
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_CONNECTING]);
         return SMF_EVENT_HANDLED;
     }
@@ -317,7 +352,7 @@ static enum smf_state_result connecting_run(void *o) {
     if (state->chan == &network_chan) {
         const struct network_msg *msg = (const struct network_msg *)state->msg_buf;
         if (msg->type == NETWORK_CONNECTED) {
-            LOG_INF("LT: LTE re-connected, starting new search cycle");
+            LOG_INF("LTE re-connected, starting new search cycle");
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_SAMPLING]);
             return SMF_EVENT_HANDLED;
         }
@@ -341,6 +376,8 @@ void location_test_init(struct location_test_state_object *state) {
     state->sample_interval_sec = CONFIG_APP_SAMPLING_INTERVAL_SECONDS;
     state->location_received = false;
     state->use_cellular_next = true;
+    state->is_gnss_search = false;
+    state->last_satellites_tracked = -1;
     lt_state_name = "waiting_module";
     smf_set_initial(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_MODULE]);
 }
@@ -348,7 +385,7 @@ void location_test_init(struct location_test_state_object *state) {
 void location_test_process(struct location_test_state_object *state) {
     int err = smf_run_state(SMF_CTX(state));
     if (err) {
-        LOG_ERR("LT: smf_run_state(), error: %d", err);
+        LOG_ERR("smf_run_state(), error: %d", err);
         SEND_FATAL_ERROR();
     }
 }

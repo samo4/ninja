@@ -19,6 +19,9 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_LED)
+#include "led.h"
+#endif
 #include "location.h"
 #include "network.h"
 
@@ -71,6 +74,8 @@ struct location_test_state_object {
     uint32_t sample_interval_sec;
     bool location_received;
     bool use_cellular_next;
+    bool is_gnss_search;
+    int last_satellites_tracked;
 };
 
 void location_test_init(struct location_test_state_object *state);
