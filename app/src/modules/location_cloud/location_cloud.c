@@ -244,7 +244,6 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
 
     static uint8_t cell_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
-
     int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, "application/json", request_body, body_len,
                                  CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
     if (err) {
@@ -252,21 +251,12 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
         return err;
     }
 
-    LOG_INF("Cellular cloud location response: %zu bytes", total_len);
-
-    /* Parse the cloud response and feed it back to the location library.
-     * nRF Cloud REST API returns:
-     *   {"lat": 45.524098, "lon": -122.688408, "uncertainty": 300}
-     */
     struct location_data cloud_location = {0};
     bool parsed = false;
-
     if (total_len > 0) {
-        /* Simple JSON parse — extract lat, lon, uncertainty. */
         char *lat_ptr = strstr((char *)cell_buf, "\"lat\"");
         char *lon_ptr = strstr((char *)cell_buf, "\"lon\"");
         char *unc_ptr = strstr((char *)cell_buf, "\"uncertainty\"");
-
         if (lat_ptr && lon_ptr) {
             lat_ptr = strchr(lat_ptr, ':');
             lon_ptr = strchr(lon_ptr, ':');
@@ -286,9 +276,8 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
 
     if (parsed) {
         location_cloud_location_ext_result_set(LOCATION_EXT_RESULT_SUCCESS, &cloud_location);
-        LOG_DBG("Cellular cloud location processed successfully "
-                "(lat=%.6f, lon=%.6f, uncertainty=%.1f)",
-                cloud_location.latitude, cloud_location.longitude, (double)cloud_location.accuracy);
+        LOG_DBG("Cellular location parsed  (lat=%.6f, lon=%.6f, uncertainty=%.1f)", cloud_location.latitude,
+                cloud_location.longitude, (double)cloud_location.accuracy);
     } else {
         LOG_WRN("Could not parse cloud location response, reporting unknown");
         location_cloud_location_ext_result_set(LOCATION_EXT_RESULT_UNKNOWN, NULL);
