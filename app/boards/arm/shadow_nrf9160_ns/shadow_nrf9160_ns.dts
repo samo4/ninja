@@ -74,7 +74,14 @@
 		reg = <0>;
 		spi-max-frequency = <1000000>;
 		irq-gpios = <&gpio0 30 GPIO_ACTIVE_HIGH>;
-		/* INT1: P0.30, INT2: P0.31 */
+		int-pin = <2>;
+		odr = <25>;
+		range = <2>;
+		power-mode = <0>;
+		low-noise;
+		hp-filter-path;
+		wakeup-duration = <1>;
+		/* INT1: P0.30 (wake-up), INT2: P0.31 (DRDY) */
 	};
 };
 

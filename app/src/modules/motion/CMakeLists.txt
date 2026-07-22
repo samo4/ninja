@@ -10,4 +10,6 @@ target_sources(app PRIVATE
 )
 target_include_directories(app PRIVATE .
 	${ZEPHYR_BASE}/../modules/hal/st/sensor/stmemsc/lis2dtw12_STdC/driver
+	${ZEPHYR_BASE}/drivers/sensor/st/lis2dw12
+	${ZEPHYR_BASE}/drivers/sensor/st/stmemsc
 )

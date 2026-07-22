@@ -29,6 +29,7 @@
 #include "cloud_post.h"
 #include "location.h"
 #include "location_test.h"
+#include "motion.h"
 #include "network.h"
 
 LOG_MODULE_REGISTER(location_test, CONFIG_APP_LOG_LEVEL);
@@ -81,6 +82,13 @@ static void fire_location_search(enum location_msg_type type) {
         LOG_ERR("Failed to publish location trigger (%d), error: %d", type, err);
         SEND_FATAL_ERROR();
         return;
+    }
+
+    /* Sample the LIS2DTW12 temperature alongside the location request */
+    const struct motion_msg mot_req = {.type = MOTION_SAMPLE_REQUEST};
+    err = zbus_chan_pub(&motion_chan, &mot_req, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish motion sample request, error: %d", err);
     }
 }
 
