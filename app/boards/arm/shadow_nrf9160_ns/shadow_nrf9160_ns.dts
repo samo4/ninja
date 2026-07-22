@@ -69,6 +69,7 @@
 	pinctrl-names = "default", "sleep";
 	cs-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
   // INT1: P0.30 (wake-up), INT2: P0.31 (DRDY)
+  // https://www.st.com/resource/en/datasheet/lis2dw12.pdf
 	lis2dtw12: lis2dtw12@0 {
 		compatible = "st,lis2dw12";
 		reg = <0>;
