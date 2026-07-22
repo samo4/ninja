@@ -183,7 +183,7 @@ int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec
 
         err = rest_client_request_with_retry(&req, &resp);
         if (err) {
-            LOG_ERR("Chunk request at offset %u failed: %d", offset, err);
+            LOG_DBG("Chunk request at offset %u failed: %d", offset, err);
             return err;
         }
 

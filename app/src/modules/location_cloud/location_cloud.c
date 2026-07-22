@@ -312,9 +312,7 @@ static void handle_agnss_request(const struct nrf_modem_gnss_agnss_data_frame *a
     }
 
     int err = fetch_agnss_data(agnss_req);
-
     if (err) {
-        LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         publish_result(LOCATION_CLOUD_AGNSS_FETCH_FAILED, err);
         return;
     }

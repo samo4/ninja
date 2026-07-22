@@ -70,9 +70,10 @@
 	cs-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
 
 	lis2dtw12: lis2dtw12@0 {
-		compatible = "st,lis2dtw12";
+		compatible = "st,lis2dw12";
 		reg = <0>;
 		spi-max-frequency = <1000000>;
+		irq-gpios = <&gpio0 30 GPIO_ACTIVE_HIGH>;
 		/* INT1: P0.30, INT2: P0.31 */
 	};
 };

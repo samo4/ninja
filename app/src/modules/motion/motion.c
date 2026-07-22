@@ -23,6 +23,11 @@
 #include "module_state.h"
 #include "motion.h"
 
+#if defined(CONFIG_APP_LED)
+#include <zephyr/drivers/gpio.h>
+#include "led.h"
+#endif
+
 LOG_MODULE_REGISTER(motion, CONFIG_APP_MOTION_LOG_LEVEL);
 
 /* ── Channel definition ──────────────────────────────────────────── */
@@ -88,6 +93,38 @@ static struct spi_dt_spec lis2dtw12_spi = {
             .cs = SPI_CS_CONTROL_INIT(DT_NODELABEL(lis2dtw12)),
         },
 };
+
+/* ── Movement detection (INT1 GPIO interrupt + LED blink) ───────── */
+
+#if defined(CONFIG_APP_LED)
+/* INT1 from LIS2DTW12 is P0.30, mapped via irq-gpios in the DTS */
+static struct gpio_dt_spec motion_int_gpio = GPIO_DT_SPEC_GET(DT_NODELABEL(lis2dtw12), irq_gpios);
+
+static struct gpio_callback motion_int_cb_data;
+static struct k_work motion_blink_work;
+
+static void motion_blink_work_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+
+    struct led_msg blink_msg = {
+        .type = LED_RGB_SET,
+        .red = 255,
+        .green = 0,
+        .duration_on_msec = 200,
+        .duration_off_msec = 200,
+        .repetitions = 5,
+    };
+
+    int err = zbus_chan_pub(&led_chan, &blink_msg, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish LED blink: %d", err);
+    }
+}
+
+static void motion_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    k_work_submit(&motion_blink_work);
+}
+#endif /* CONFIG_APP_LED */
 
 /* ── Low-level SPI helpers ───────────────────────────────────────── */
 
@@ -412,6 +449,36 @@ static void motion_module_thread(void) {
             LOG_ERR("LIS2DTW12 boot temperature read failed");
         }
     }
+
+#if defined(CONFIG_APP_LED)
+    /* Set up INT1 GPIO interrupt for movement detection */
+    if (!gpio_is_ready_dt(&motion_int_gpio)) {
+        LOG_ERR("INT1 GPIO device not ready");
+        SEND_FATAL_ERROR();
+        return;
+    }
+
+    err = gpio_pin_configure_dt(&motion_int_gpio, GPIO_INPUT);
+    if (err) {
+        LOG_ERR("Failed to configure INT1 GPIO: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
+
+    err = gpio_pin_interrupt_configure_dt(&motion_int_gpio, GPIO_INT_EDGE_RISING);
+    if (err) {
+        LOG_ERR("Failed to configure INT1 interrupt: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
+
+    gpio_init_callback(&motion_int_cb_data, motion_int_handler, BIT(motion_int_gpio.pin));
+    gpio_add_callback(motion_int_gpio.port, &motion_int_cb_data);
+
+    k_work_init(&motion_blink_work, motion_blink_work_handler);
+
+    LOG_INF("Movement interrupt enabled on INT1 (P0.%d)", motion_int_gpio.pin);
+#endif /* CONFIG_APP_LED */
 
     TASK_WDT_ADD(mot, wdt_timeout_ms)
 
