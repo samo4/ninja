@@ -208,7 +208,7 @@ static enum smf_state_result waiting_cloud_run(void *o) {
         }
 
         if (msg->type == CLOUD_POST_SEND_FAILED) {
-            LOG_WRN("LT: cloud POST failed (%d), disconnecting anyway", msg->http_status);
+            LOG_WRN("cloud POST failed (%d), disconnecting", msg->http_status);
             request_disconnect();
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_DISCONNECTING]);
             return SMF_EVENT_HANDLED;
