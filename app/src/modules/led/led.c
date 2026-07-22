@@ -156,7 +156,21 @@ static void led_callback(const struct zbus_channel *chan) {
 }
 
 static int led_init(void) {
+    int err;
+
     k_work_init_delayable(&blink_work, blink_timer_handler);
+
+    // Turn off both LEDs at boot
+    err = pwm_set_dt(&pwm_led0, PWM_PERIOD, PWM_USEC(0));
+    if (err) {
+        LOG_ERR("pwm_set_dt pwm_led0 init off, error:%d", err);
+        return err;
+    }
+    err = pwm_set_dt(&pwm_led1, PWM_PERIOD, PWM_USEC(0));
+    if (err) {
+        LOG_ERR("pwm_set_dt pwm_led1 init off, error:%d", err);
+        return err;
+    }
 
     return 0;
 }
