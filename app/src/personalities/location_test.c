@@ -318,6 +318,26 @@ static void sleeping_entry(void *o) {
     lt_state_name = "sleeping";
     LOG_DBG("%s", __func__);
     LOG_INF("sleeping with modem off for %us — measure power now", state->sample_interval_sec);
+
+#if defined(CONFIG_APP_LED)
+    LOG_ERR("Setting LED to indicate sample request TODO: REMOVE ME");
+    struct led_msg led = {
+        .type = LED_RGB_SET,
+        .red = 100,
+        .green = 0,
+        .duration_on_msec = 250,
+        .duration_off_msec = 1000,
+        .repetitions = 10,
+    };
+
+    int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
+    if (err) {
+        LOG_ERR("Failed to publish LED pattern, error: %d", err);
+        SEND_FATAL_ERROR();
+        return;
+    }
+#endif /* CONFIG_APP_LED */
+
     timer_arm(state->sample_interval_sec);
 }
 

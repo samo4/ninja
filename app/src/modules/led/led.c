@@ -8,6 +8,7 @@
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/pm/device_runtime.h>
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
@@ -52,7 +53,34 @@ struct led_state {
 };
 
 static struct led_state led_state;
+static bool pwm_is_powered;
 static void blink_timer_handler(struct k_work *work);
+
+static int pwm_power_on(void) {
+    if (pwm_is_powered) {
+        return 0;
+    }
+    int err = pm_device_runtime_get(pwm_led0.dev);
+    if (err < 0) {
+        LOG_ERR("Failed to power on PWM, error: %d", err);
+        return err;
+    }
+    pwm_is_powered = true;
+    return 0;
+}
+
+static int pwm_power_off(void) {
+    if (!pwm_is_powered) {
+        return 0;
+    }
+    int err = pm_device_runtime_put(pwm_led0.dev);
+    if (err < 0) {
+        LOG_ERR("Failed to power off PWM, error: %d", err);
+        return err;
+    }
+    pwm_is_powered = false;
+    return 0;
+}
 
 static int pwm_out(const struct led_msg *led_msg, bool force_off) {
     int err;
@@ -68,15 +96,15 @@ static int pwm_out(const struct led_msg *led_msg, bool force_off) {
         return -ENODEV;
     }
 
-    /* RED */
-    err = pwm_set_dt(&pwm_led0, PWM_PERIOD, PWM_USEC(red));
+    /* pwm_led0 = P0.14 = green LED */
+    err = pwm_set_dt(&pwm_led0, PWM_PERIOD, PWM_USEC(green));
     if (err) {
         LOG_ERR("pwm_set_dt, error:%d", err);
         return err;
     }
 
-    /* GREEN */
-    err = pwm_set_dt(&pwm_led1, PWM_PERIOD, PWM_USEC(green));
+    /* pwm_led1 = P0.15 = red LED */
+    err = pwm_set_dt(&pwm_led1, PWM_PERIOD, PWM_USEC(red));
     if (err) {
         LOG_ERR("pwm_set_dt, error:%d", err);
         return err;
@@ -104,7 +132,8 @@ static void blink_timer_handler(struct k_work *work) {
     if (!led_state.is_on && led_state.repetitions > 0) {
         led_state.repetitions--;
         if (led_state.repetitions == 0) {
-            /* We're done, don't schedule next toggle */
+            /* We're done — power down PWM, don't schedule next toggle */
+            (void)pwm_power_off();
             return;
         }
     }
@@ -138,6 +167,16 @@ static void led_callback(const struct zbus_channel *chan) {
         /* If repetitions is 0, turn LED off. Otherwise LED on */
         led_state.is_on = (led_state.repetitions != 0);
 
+        if (led_state.is_on) {
+            // Power on PWM before using it
+            err = pwm_power_on();
+            if (err) {
+                LOG_ERR("pwm_power_on, error: %d", err);
+                SEND_FATAL_ERROR();
+                return;
+            }
+        }
+
         err = pwm_out(led_msg, !led_state.is_on);
         if (err) {
             LOG_ERR("pwm_out, error: %d", err);
@@ -151,6 +190,8 @@ static void led_callback(const struct zbus_channel *chan) {
                 LOG_ERR("k_work_schedule, error: %d", err);
                 SEND_FATAL_ERROR();
             }
+        } else {
+            (void)pwm_power_off();
         }
     }
 }
