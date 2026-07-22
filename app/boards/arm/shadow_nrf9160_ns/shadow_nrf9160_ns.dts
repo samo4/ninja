@@ -75,12 +75,12 @@
 		spi-max-frequency = <1000000>;
 		irq-gpios = <&gpio0 30 GPIO_ACTIVE_HIGH>;
 		int-pin = <2>;
-		odr = <25>;
-		range = <2>;
-		power-mode = <0>;
+		odr = <25>; // Output data rate: 25 Hz
+		range = <2>; // full-scale range: ±xg
+		power-mode = <0>; // low-power mode
 		low-noise;
 		hp-filter-path;
-		wakeup-duration = <1>;
+		wakeup-duration = <1>; // wake-up duration: 1 sample. options up to 4 samples (0-3)
 		/* INT1: P0.30 (wake-up), INT2: P0.31 (DRDY) */
 	};
 };

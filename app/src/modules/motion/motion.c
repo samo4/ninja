@@ -48,15 +48,25 @@ ZBUS_CHAN_ADD_OBS(motion_chan, motion, 0);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 
+// Wake-up threshold register (R/W)
+// WK_THS[5:0]:
 static const uint8_t WKUP_THR_62mg_AT_2g = 0x02;
 static const uint8_t WKUP_THR_94mg_AT_2g = 0x03;
 static const uint8_t WKUP_THR_125mg_AT_2g = 0x04;
+static const uint8_t WKUP_THR_156mg_AT_2g = 0x05;
+static const uint8_t WKUP_THR_188mg_AT_2g = 0x06;
+static const uint8_t WKUP_THR_219mg_AT_2g = 0x07;
+/// .. up to WKUP_THR_2000mg_AT_2g = 0x3F
+static const uint8_t WKUP_SLEEP_ON = 1 << 6; // sleep/inactivity Default: 0 (0: sleep disabled; 1: sleep enabled)
+static const uint8_t WKUP_SINGLE_DOUBLE_TAP =
+    1 << 7; // (0: only single-tap event is enabled; 1: single and double-tap events are enabled)
+
+// Don't Forget the Duration: WAKE_UP_DUR register (Register 0x31, bits 5-6): number of samples that must exceed the
+// threshold to trigger a wake-up event.  Default: 0 (1 sample).  Valid values: 0-3 (1-4 samples).
 
 #pragma GCC diagnostic pop
 
-/* Pointer to the Zephyr driver's stmdev_ctx_t (embedded in its config).
- * Initialised once the driver probe has completed.
- */
+// Pointer to the Zephyr driver's stmdev_ctx_t (embedded in its config).
 static const stmdev_ctx_t *driver_ctx;
 
 /* ── Movement detection (INT1 GPIO interrupt + LED blink) ───────── */
@@ -125,7 +135,7 @@ static int configure_wakeup(void) {
         return err;
     }
 
-    err = lis2dtw12_wkup_threshold_set(driver_ctx, WKUP_THR_125mg_AT_2g);
+    err = lis2dtw12_wkup_threshold_set(driver_ctx, WKUP_THR_188mg_AT_2g);
     if (err) {
         LOG_ERR("WKUP threshold set failed: %d", err);
         return err;
