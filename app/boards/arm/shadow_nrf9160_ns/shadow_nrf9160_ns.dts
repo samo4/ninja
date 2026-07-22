@@ -68,7 +68,7 @@
 	pinctrl-1 = <&spi2_sleep>;
 	pinctrl-names = "default", "sleep";
 	cs-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
-
+  // INT1: P0.30 (wake-up), INT2: P0.31 (DRDY)
 	lis2dtw12: lis2dtw12@0 {
 		compatible = "st,lis2dw12";
 		reg = <0>;
@@ -81,7 +81,7 @@
 		low-noise;
 		hp-filter-path;
 		wakeup-duration = <1>; // wake-up duration: 1 sample. options up to 4 samples (0-3)
-		/* INT1: P0.30 (wake-up), INT2: P0.31 (DRDY) */
+
 	};
 };
 
