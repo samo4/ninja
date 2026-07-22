@@ -325,15 +325,11 @@ static void handle_cloud_location_request(const struct location_cloud_request_da
         request_lte_connect();
         return;
     }
-
     int err = send_cellular_cloud_request(cloud_req);
-
     if (err) {
-        LOG_ERR("Failed to send cellular cloud request: %d", err);
         publish_result(LOCATION_CLOUD_CELLULAR_FAILED, err);
         return;
     }
-
     publish_result(LOCATION_CLOUD_CELLULAR_DONE, 200);
 }
 

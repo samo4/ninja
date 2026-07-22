@@ -83,11 +83,11 @@ static void motion_blink_work_handler(struct k_work *work) {
 
     struct led_msg blink_msg = {
         .type = LED_RGB_SET,
-        .red = 255,
-        .green = 0,
+        .red = 0,
+        .green = 255,
         .duration_on_msec = 200,
         .duration_off_msec = 200,
-        .repetitions = 5,
+        .repetitions = 1,
     };
 
     int err = zbus_chan_pub(&led_chan, &blink_msg, PUB_TIMEOUT);
