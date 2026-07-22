@@ -226,9 +226,9 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_LTE_MODE_UPDATE:
             LOG_INF("LTE mode: %s", evt->lte_mode == 7 ? "LTE-M" : evt->lte_mode == 9 ? "NB-IoT" : "other");
             break;
-        case LTE_LC_EVT_RRC_UPDATE:
-            LOG_DBG("RRC state: %s", evt->rrc_mode ? "Connected" : "Idle");
-            break;
+        // case LTE_LC_EVT_RRC_UPDATE:
+        //     LOG_DBG("RRC state: %s", evt->rrc_mode ? "Connected" : "Idle");
+        //     break;
         case LTE_LC_EVT_CELL_UPDATE:
             LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
             break;
