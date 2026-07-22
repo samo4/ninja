@@ -24,7 +24,9 @@
 #elif defined(CONFIG_APP_ENVIRONMENTAL)
 #include "environmental.h"
 #endif
+#if defined(CONFIG_APP_LED)
 #include "led.h"
+#endif
 #include "reporting.h"
 
 LOG_MODULE_REGISTER(reporting, CONFIG_APP_LOG_LEVEL);
@@ -63,7 +65,7 @@ static void timer_arm(uint32_t delay_sec) {
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 static void fire_sample(struct reporting_state *state) {
-    // LED flash: green heartbeat
+#if defined(CONFIG_APP_LED)
     struct led_msg led = {
         .type = LED_RGB_SET,
         .red = 0,
@@ -79,8 +81,8 @@ static void fire_sample(struct reporting_state *state) {
         SEND_FATAL_ERROR();
         return;
     }
+#endif /* CONFIG_APP_LED */
 
-    /* Request one sensor sample */
 #if defined(CONFIG_APP_MOTION)
     struct motion_msg req = {
         .type = MOTION_SAMPLE_REQUEST,
@@ -100,7 +102,7 @@ static void fire_sample(struct reporting_state *state) {
         return;
     }
 
-    /* Arm the next sample */
+    // Arm the next sample
     timer_arm(state->sample_interval_sec);
 }
 
