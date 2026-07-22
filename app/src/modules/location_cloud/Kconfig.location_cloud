@@ -25,29 +25,6 @@ menuconfig APP_LOCATION_CLOUD
 
 if APP_LOCATION_CLOUD
 
-# ── Shared server settings (both endpoints on the same server) ──────────
-
-config APP_LOCATION_CLOUD_HOST
-	string "Proxy server hostname"
-	default "balirkaback.azurewebsites.net"
-	help
-	  Hostname of the proxy server used for both A-GNSS and cellular/Wi-Fi
-	  cloud positioning.
-
-config APP_LOCATION_CLOUD_PORT
-	int "Proxy server port"
-	default 443
-	range 1 65535
-	help
-	  Port of the proxy server.
-
-config APP_LOCATION_CLOUD_SEC_TAG
-	int "Proxy server TLS security tag"
-	default 168448
-	help
-	  Security tag for TLS connection to the proxy server.
-	  The corresponding CA certificate must be provisioned.
-
 # ── A-GNSS settings ──────────────────────────────────────────────────────
 
 config APP_LOCATION_CLOUD_AGNSS_URL

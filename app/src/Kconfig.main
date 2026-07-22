@@ -65,6 +65,29 @@ config APP_MSG_PROCESSING_TIMEOUT_SECONDS
 	  Maximum time allowed for processing a single message in the module's state machine.
 	  The value must be smaller than CONFIG_APP_WATCHDOG_TIMEOUT_SECONDS.
 
+# ── Shared cloud server settings ──────────────────────────────────────────
+# Both cloud_post and location_cloud modules use the same server.
+
+config APP_CLOUD_HOST
+	string "Cloud server hostname"
+	default "balirkaback.azurewebsites.net"
+	help
+	  Hostname of the cloud REST API server.
+
+config APP_CLOUD_PORT
+	int "Cloud server port"
+	default 443
+	range 1 65535
+	help
+	  Port of the cloud REST API server.
+
+config APP_CLOUD_SEC_TAG
+	int "Cloud server TLS security tag"
+	default 168448
+	help
+	  Security tag for TLS connection to the cloud REST API server.
+	  The corresponding CA certificate must be provisioned.
+
 module = APP
 module-str = APP
 source "subsys/logging/Kconfig.template.log_config"

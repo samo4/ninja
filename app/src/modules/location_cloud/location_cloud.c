@@ -138,15 +138,14 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         return -ENOMEM;
     }
 
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-            CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, request_body);
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT, CONFIG_APP_LOCATION_CLOUD_AGNSS_URL,
+            request_body);
 
     static uint8_t full_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
 
-    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-                                 CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG, request_body,
-                                 body_len, CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
+    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, "application/json", request_body, body_len,
+                                 CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         return err;
@@ -240,15 +239,14 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
         return -ENOMEM;
     }
 
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT,
             CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, request_body);
 
     static uint8_t cell_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
 
-    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-                                 CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG,
-                                 request_body, body_len, CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
+    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, "application/json", request_body, body_len,
+                                 CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to send cellular cloud request: %d", err);
         return err;
