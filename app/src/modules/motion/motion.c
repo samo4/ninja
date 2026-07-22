@@ -1,3 +1,4 @@
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/smf.h>
@@ -45,6 +46,50 @@ ZBUS_CHAN_ADD_OBS(motion_chan, motion, 0);
 
 static const stmdev_ctx_t *driver_ctx;
 
+/* GPIO interrupt for motion detection (PORT event, not SENSE) */
+static const struct gpio_dt_spec motion_int = GPIO_DT_SPEC_GET(DT_NODELABEL(lis2dtw12), irq_gpios);
+static struct gpio_callback motion_int_cb_data;
+
+static struct k_work_delayable motion_int_work;
+
+static void motion_int_work_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+
+    // clear interrupt sources
+    lis2dtw12_all_sources_t all_src;
+    int err = lis2dtw12_all_sources_get(driver_ctx, &all_src);
+    if (err) {
+        LOG_ERR("Failed to clear sensor interrupt sources: %d", err);
+    }
+
+    struct motion_msg msg = {
+        .type = MOTION_EVENT_DETECTED,
+        .timestamp = k_uptime_get(),
+    };
+    err = zbus_chan_pub(&motion_chan, &msg, K_NO_WAIT);
+    if (err) {
+        LOG_ERR("Motion event publish failed: %d", err);
+    }
+
+    err = gpio_pin_interrupt_configure_dt(&motion_int, GPIO_INT_LEVEL_HIGH);
+    if (err) {
+        LOG_ERR("Failed to re-enable GPIO interrupt: %d", err);
+    }
+
+    LOG_INF("Motion detected!");
+}
+
+static void motion_interrupt_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    ARG_UNUSED(dev);
+    ARG_UNUSED(cb);
+    ARG_UNUSED(pins);
+    gpio_pin_interrupt_configure_dt(&motion_int, GPIO_INT_DISABLE);
+
+    // will re-enable the interrupt after we clear the interrupt sources
+    // needs debounce
+    k_work_schedule(&motion_int_work, K_MSEC(150));
+}
+
 static int init_sensor(void) {
     // Grab a pointer to the Zephyr driver's STMems context for our register access
     const struct device *dev = DEVICE_DT_GET(DT_NODELABEL(lis2dtw12));
@@ -78,6 +123,45 @@ static int configure_sensor(void) {
     }
 
     LOG_INF("Wake-up configured on INT1, threshold=188mg");
+    return 0;
+}
+
+static int configure_interrupt(void) {
+    int err;
+
+    if (!gpio_is_ready_dt(&motion_int)) {
+        LOG_ERR("Motion interrupt GPIO not ready");
+        return -ENODEV;
+    }
+
+    /* Initialize work item for deferred interrupt handling */
+    k_work_init_delayable(&motion_int_work, motion_int_work_handler);
+
+    /* Configure as input */
+    err = gpio_pin_configure_dt(&motion_int, GPIO_INPUT);
+    if (err) {
+        LOG_ERR("GPIO configure failed: %d", err);
+        return err;
+    }
+
+    /* Initialize callback */
+    gpio_init_callback(&motion_int_cb_data, motion_interrupt_handler, BIT(motion_int.pin));
+    err = gpio_add_callback(motion_int.port, &motion_int_cb_data);
+    if (err) {
+        LOG_ERR("GPIO callback add failed: %d", err);
+        return err;
+    }
+
+    /* Enable PORT event interrupt (level-high, not edge) — much lower
+     * power than edge-triggered GPIO SENSE on nRF9160.
+     */
+    err = gpio_pin_interrupt_configure_dt(&motion_int, GPIO_INT_LEVEL_HIGH);
+    if (err) {
+        LOG_ERR("GPIO interrupt configure failed: %d", err);
+        return err;
+    }
+
+    LOG_INF("Motion interrupt configured (PORT event, level-high)");
     return 0;
 }
 
@@ -204,6 +288,11 @@ static void motion_module_thread(void) {
     }
 
     if (configure_sensor() != 0) {
+        SEND_FATAL_ERROR();
+        return;
+    }
+
+    if (configure_interrupt() != 0) {
         SEND_FATAL_ERROR();
         return;
     }

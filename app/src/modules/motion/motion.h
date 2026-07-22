@@ -23,6 +23,9 @@ enum motion_msg_type {
     /** Temperature sample data from the LIS2DTW12 sensor. */
     MOTION_TEMPERATURE_DATA = 0x1,
 
+    /** Motion/wake-up event detected by the accelerometer. */
+    MOTION_EVENT_DETECTED,
+
     /* Input message types */
 
     /** Request to sample the LIS2DTW12 temperature sensor. */
