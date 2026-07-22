@@ -201,11 +201,7 @@ static void cloud_post_module_thread(void *arg1, void *arg2, void *arg3) {
         }
 #endif
 
-#if defined(CONFIG_LOCATION)
-        if (mod.location_received) {
-#else
-        if (mod.env_received) {
-#endif
+        if (mod.location_received || mod.env_received) {
             if (mod.connected) {
                 cloud_post_send();
                 mod_reset_samples();
