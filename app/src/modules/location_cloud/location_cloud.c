@@ -138,15 +138,14 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         return -ENOMEM;
     }
 
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-            CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, request_body);
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT, CONFIG_APP_LOCATION_CLOUD_AGNSS_URL,
+            request_body);
 
     static uint8_t full_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
 
-    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-                                 CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG, request_body,
-                                 body_len, CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
+    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, "application/json", request_body, body_len,
+                                 CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         return err;
@@ -240,35 +239,24 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
         return -ENOMEM;
     }
 
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT,
             CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, request_body);
 
     static uint8_t cell_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
-
-    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_HOST, CONFIG_APP_LOCATION_CLOUD_PORT,
-                                 CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, CONFIG_APP_LOCATION_CLOUD_SEC_TAG,
-                                 request_body, body_len, CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
+    int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, "application/json", request_body, body_len,
+                                 CHUNK_SIZE, cell_buf, sizeof(cell_buf), &total_len);
     if (err) {
         LOG_ERR("Failed to send cellular cloud request: %d", err);
         return err;
     }
 
-    LOG_INF("Cellular cloud location response: %zu bytes", total_len);
-
-    /* Parse the cloud response and feed it back to the location library.
-     * nRF Cloud REST API returns:
-     *   {"lat": 45.524098, "lon": -122.688408, "uncertainty": 300}
-     */
     struct location_data cloud_location = {0};
     bool parsed = false;
-
     if (total_len > 0) {
-        /* Simple JSON parse — extract lat, lon, uncertainty. */
         char *lat_ptr = strstr((char *)cell_buf, "\"lat\"");
         char *lon_ptr = strstr((char *)cell_buf, "\"lon\"");
         char *unc_ptr = strstr((char *)cell_buf, "\"uncertainty\"");
-
         if (lat_ptr && lon_ptr) {
             lat_ptr = strchr(lat_ptr, ':');
             lon_ptr = strchr(lon_ptr, ':');
@@ -288,9 +276,8 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
 
     if (parsed) {
         location_cloud_location_ext_result_set(LOCATION_EXT_RESULT_SUCCESS, &cloud_location);
-        LOG_DBG("Cellular cloud location processed successfully "
-                "(lat=%.6f, lon=%.6f, uncertainty=%.1f)",
-                cloud_location.latitude, cloud_location.longitude, (double)cloud_location.accuracy);
+        LOG_DBG("Cellular location parsed  (lat=%.6f, lon=%.6f, uncertainty=%.1f)", cloud_location.latitude,
+                cloud_location.longitude, (double)cloud_location.accuracy);
     } else {
         LOG_WRN("Could not parse cloud location response, reporting unknown");
         location_cloud_location_ext_result_set(LOCATION_EXT_RESULT_UNKNOWN, NULL);
@@ -312,9 +299,7 @@ static void handle_agnss_request(const struct nrf_modem_gnss_agnss_data_frame *a
     }
 
     int err = fetch_agnss_data(agnss_req);
-
     if (err) {
-        LOG_ERR("Failed to fetch A-GNSS data: %d", err);
         publish_result(LOCATION_CLOUD_AGNSS_FETCH_FAILED, err);
         return;
     }
@@ -329,15 +314,11 @@ static void handle_cloud_location_request(const struct location_cloud_request_da
         request_lte_connect();
         return;
     }
-
     int err = send_cellular_cloud_request(cloud_req);
-
     if (err) {
-        LOG_ERR("Failed to send cellular cloud request: %d", err);
         publish_result(LOCATION_CLOUD_CELLULAR_FAILED, err);
         return;
     }
-
     publish_result(LOCATION_CLOUD_CELLULAR_DONE, 200);
 }
 

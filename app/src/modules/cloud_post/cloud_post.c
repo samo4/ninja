@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-#include <net/rest_client.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/task_wdt/task_wdt.h>
@@ -82,9 +81,9 @@ static void mod_request_connect(void) {
 }
 
 static void cloud_post_send(void) {
-    char resp_buf[1024];
     char csv_body[256];
-    const char *header_fields[] = {"Content-Type: text/csv\r\n", NULL};
+    static uint8_t resp_buf[2048];
+    size_t total_len = 0;
     int voltage_mv = 0;
 
     int err = modem_battery_voltage_get(&voltage_mv);
@@ -94,35 +93,28 @@ static void cloud_post_send(void) {
     }
     snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f,%.6f,%.6f,%.1f", device_uid, voltage_mv, mod.env_data.temperature,
              mod.location_latitude, mod.location_longitude, (double)mod.location_accuracy);
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_POST_HOST, CONFIG_APP_CLOUD_POST_PORT, CONFIG_APP_CLOUD_POST_URL,
+    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT, CONFIG_APP_CLOUD_POST_URL,
             csv_body);
-    struct rest_client_req_context req = {0};
-    struct rest_client_resp_context resp = {0};
-    rest_client_request_defaults_set(&req);
-    req.host = CONFIG_APP_CLOUD_POST_HOST;
-    req.port = CONFIG_APP_CLOUD_POST_PORT;
-    req.url = CONFIG_APP_CLOUD_POST_URL;
-    req.sec_tag = CONFIG_APP_CLOUD_POST_SEC_TAG;
-    req.http_method = HTTP_POST;
-    req.header_fields = header_fields;
-    req.body = csv_body;
-    req.body_len = strlen(csv_body);
-    req.resp_buff = resp_buf;
-    req.resp_buff_len = sizeof(resp_buf);
-    err = rest_client_request_with_retry(&req, &resp);
-    if (err == 0) {
-        LOG_INF("Cloud POST response: \x1b[32mHTTP %d (%s)\x1b[0m, body: %d bytes", resp.http_status_code,
-                resp.http_status_code_str, resp.response_len);
-        struct cloud_post_msg done_msg = {.type = CLOUD_POST_SEND_DONE, .http_status = resp.http_status_code};
+
+    int status = http_fetch_chunked(CONFIG_APP_CLOUD_POST_URL, "text/csv", csv_body, strlen(csv_body), 1400, resp_buf,
+                                    sizeof(resp_buf), &total_len);
+    if (status == 0) {
+        LOG_INF("Cloud POST response: HTTP 200, body: %zu bytes", total_len);
+        struct cloud_post_msg done_msg = {.type = CLOUD_POST_SEND_DONE, .http_status = 200};
         zbus_chan_pub(&cloud_post_chan, &done_msg, PUB_TIMEOUT);
+    } else if (status > 0) {
+        LOG_ERR("Cloud POST returned HTTP %d", status);
+        struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = status};
+        zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
     } else {
-        LOG_ERR("REST request failed: %d", err);
-        /* Notify subscribers that POST failed */
-        struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = err};
+        LOG_ERR("Cloud POST request failed: %d", status);
+        struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = status};
         zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
     }
-    // LOG_DBG("Response body: %.*s", resp.response_len > 64 ? 64 : resp.response_len, resp.response);
-    rtt_dump_text(resp.response, resp.response_len);
+
+    if (total_len > 0) {
+        rtt_dump_text((const char *)resp_buf, total_len);
+    }
 }
 
 TASK_WDT_CALLBACK_DEFINE(cloud_post)

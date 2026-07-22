@@ -88,14 +88,15 @@ void rtt_dump_text(const char *data, size_t len) {
 
 int rest_client_request_with_retry(struct rest_client_req_context *req, struct rest_client_resp_context *resp) {
     int err;
-
-    req->timeout_ms = REST_TIMEOUT_MS;
     req->tls_peer_verify = 0;
-
+    req->timeout_ms = REST_TIMEOUT_MS;
     for (int attempt = 0; attempt <= REST_RETRY_COUNT; attempt++) {
         err = rest_client_request(req, resp);
 
         if (err == 0) {
+            if (attempt > 0) {
+                LOG_DBG("Request succeeded after %d attempt(s)", attempt + 1);
+            }
             return 0;
         }
 
@@ -104,6 +105,7 @@ int rest_client_request_with_retry(struct rest_client_req_context *req, struct r
         }
     }
 
+    LOG_DBG("Request failed after %d attempt(s), err: %d", REST_RETRY_COUNT + 1, err);
     return err;
 }
 
@@ -128,8 +130,8 @@ int rest_client_request_with_retry(struct rest_client_req_context *req, struct r
  */
 #define HTTP_CHUNK_MAX_PAYLOAD (HTTP_CHUNK_RESP_BUF_SIZE - 512)
 
-int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec_tag, const char *body, size_t body_len,
-                       size_t chunk_size, uint8_t *out_buf, size_t out_buf_size, size_t *out_len) {
+int http_fetch_chunked(const char *url, const char *content_type, const char *body, size_t body_len, size_t chunk_size,
+                       uint8_t *out_buf, size_t out_buf_size, size_t *out_len) {
     int err;
     size_t total = 0;
 
@@ -161,7 +163,22 @@ int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec
             }
         }
 
-        const char *header_fields[] = {"Content-Type: application/json\r\n", range_str, NULL};
+        const char *header_fields[3];
+        int hf_idx = 0;
+
+        /* Optional Content-Type header. */
+        if (content_type) {
+            static char ct_buf[64];
+            int n = snprintf(ct_buf, sizeof(ct_buf), "Content-Type: %s\r\n", content_type);
+            if (n < 0 || n >= (int)sizeof(ct_buf)) {
+                return -ENOMEM;
+            }
+            header_fields[hf_idx++] = ct_buf;
+        }
+        /* Range header (always present). */
+        header_fields[hf_idx++] = range_str;
+        /* Terminator. */
+        header_fields[hf_idx] = NULL;
 
         LOG_DBG("Fetching chunk bytes %u-%u (total: %zu)", offset, chunk_end, total);
 
@@ -170,10 +187,15 @@ int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec
 
         rest_client_request_defaults_set(&req);
 
-        req.host = host;
-        req.port = port;
+        req.host = CONFIG_APP_CLOUD_HOST;
         req.url = url;
-        req.sec_tag = sec_tag;
+#if defined(CONFIG_APP_CLOUD_USE_TLS)
+        req.port = CONFIG_APP_CLOUD_PORT;
+        req.sec_tag = CONFIG_APP_CLOUD_SEC_TAG;
+#else
+        req.port = 80;
+        /* sec_tag stays SEC_TAG_TLS_INVALID (-1) from defaults → plain TCP */
+#endif
         req.http_method = HTTP_POST;
         req.header_fields = header_fields;
         req.body = body;
@@ -183,13 +205,13 @@ int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec
 
         err = rest_client_request_with_retry(&req, &resp);
         if (err) {
-            LOG_ERR("Chunk request at offset %u failed: %d", offset, err);
+            LOG_DBG("Chunk request at offset %u failed: %d", offset, err);
             return err;
         }
 
         if (resp.http_status_code != 200) {
             LOG_ERR("Server returned HTTP %d for chunk at %u", resp.http_status_code, offset);
-            return -EIO;
+            return resp.http_status_code;
         }
 
         if (resp.response_len == 0) {

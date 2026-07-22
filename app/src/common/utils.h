@@ -66,10 +66,12 @@ void rtt_dump_text(const char *data, size_t len);
  * @p chunk_size bytes.  The loop stops when a response is smaller than
  * @p chunk_size, indicating the final chunk.
  *
- * @param host          Server hostname.
- * @param port          Server port.
+ * The server address and TLS credentials are taken from the compile-time
+ * constants @c CONFIG_APP_CLOUD_HOST, @c CONFIG_APP_CLOUD_PORT, and
+ * @c CONFIG_APP_CLOUD_SEC_TAG.
+ *
  * @param url           URL path.
- * @param sec_tag       TLS security tag.
+ * @param content_type  Value for the Content-Type header, or NULL to omit.
  * @param body          HTTP request body (sent with every chunk request).
  * @param body_len      Length of @p body.
  * @param chunk_size    Max bytes to request per chunk.  The HTTP response
@@ -79,10 +81,12 @@ void rtt_dump_text(const char *data, size_t len);
  * @param out_buf_size  Size of @p out_buf.
  * @param[out] out_len  Total bytes received across all chunks.
  *
- * @return 0 on success, a negative errno on failure.
+ * @retval 0       All chunks received successfully (all HTTP 200).
+ * @retval >0      HTTP status code from a failed chunk (e.g. 404).
+ * @retval <0      Negative errno on transport / argument error.
  */
-int http_fetch_chunked(const char *host, uint16_t port, const char *url, int sec_tag, const char *body, size_t body_len,
-                       size_t chunk_size, uint8_t *out_buf, size_t out_buf_size, size_t *out_len);
+int http_fetch_chunked(const char *url, const char *content_type, const char *body, size_t body_len, size_t chunk_size,
+                       uint8_t *out_buf, size_t out_buf_size, size_t *out_len);
 
 #ifdef __cplusplus
 }

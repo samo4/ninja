@@ -14,31 +14,11 @@ menuconfig APP_CLOUD_POST
 
 if APP_CLOUD_POST
 
-config APP_CLOUD_POST_HOST
-	string "API hostname"
-	default "balirkaback.azurewebsites.net"
-	help
-	  Hostname of the REST API endpoint.
-
-config APP_CLOUD_POST_PORT
-	int "API port"
-	default 443
-	range 1 65535
-	help
-	  Port of the REST API endpoint.
-
 config APP_CLOUD_POST_URL
 	string "API URL path"
 	default "/api/Ninja"
 	help
 	  URL path of the REST API endpoint.
-
-config APP_CLOUD_POST_SEC_TAG
-	int "TLS security tag"
-	default 168448
-	help
-	  Security tag for TLS connection to the REST API endpoint.
-	  The corresponding CA certificate must be provisioned.
 
 config APP_CLOUD_POST_THREAD_STACK_SIZE
 	int "Thread stack size"
