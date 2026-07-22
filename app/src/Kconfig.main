@@ -76,13 +76,21 @@ config APP_CLOUD_HOST
 
 config APP_CLOUD_PORT
 	int "Cloud server port"
-	default 443
+	default 80
 	range 1 65535
 	help
 	  Port of the cloud REST API server.
 
+config APP_CLOUD_USE_TLS
+	bool "Use TLS for cloud server connection"
+	default n
+	help
+	  Enable TLS (HTTPS) for connections to the cloud REST API server.
+	  When disabled, plain HTTP is used (port 80, no security tag).
+
 config APP_CLOUD_SEC_TAG
 	int "Cloud server TLS security tag"
+	depends on APP_CLOUD_USE_TLS
 	default 168448
 	help
 	  Security tag for TLS connection to the cloud REST API server.

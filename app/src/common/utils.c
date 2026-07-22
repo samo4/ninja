@@ -88,14 +88,15 @@ void rtt_dump_text(const char *data, size_t len) {
 
 int rest_client_request_with_retry(struct rest_client_req_context *req, struct rest_client_resp_context *resp) {
     int err;
-
-    req->timeout_ms = REST_TIMEOUT_MS;
     req->tls_peer_verify = 0;
-
+    req->timeout_ms = REST_TIMEOUT_MS;
     for (int attempt = 0; attempt <= REST_RETRY_COUNT; attempt++) {
         err = rest_client_request(req, resp);
 
         if (err == 0) {
+            if (attempt > 0) {
+                LOG_DBG("Request succeeded after %d attempt(s)", attempt + 1);
+            }
             return 0;
         }
 
@@ -104,6 +105,7 @@ int rest_client_request_with_retry(struct rest_client_req_context *req, struct r
         }
     }
 
+    LOG_DBG("Request failed after %d attempt(s), err: %d", REST_RETRY_COUNT + 1, err);
     return err;
 }
 
@@ -186,9 +188,14 @@ int http_fetch_chunked(const char *url, const char *content_type, const char *bo
         rest_client_request_defaults_set(&req);
 
         req.host = CONFIG_APP_CLOUD_HOST;
-        req.port = CONFIG_APP_CLOUD_PORT;
         req.url = url;
+#if defined(CONFIG_APP_CLOUD_USE_TLS)
+        req.port = CONFIG_APP_CLOUD_PORT;
         req.sec_tag = CONFIG_APP_CLOUD_SEC_TAG;
+#else
+        req.port = 80;
+        /* sec_tag stays SEC_TAG_TLS_INVALID (-1) from defaults → plain TCP */
+#endif
         req.http_method = HTTP_POST;
         req.header_fields = header_fields;
         req.body = body;
