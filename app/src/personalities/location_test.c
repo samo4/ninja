@@ -27,7 +27,9 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_LED)
 #include "led.h"
+#endif
 #include "location.h"
 #include "location_test.h"
 #include "motion.h"
@@ -159,6 +161,7 @@ static enum smf_state_result waiting_location_run(void *o) {
             LOG_INF("fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude, msg->gnss_data.longitude,
                     (double)msg->gnss_data.accuracy);
 
+#if defined(CONFIG_APP_LED)
             /* Blink green LED on GNSS satellite count change */
             if (state->is_gnss_search) {
                 int satellites = msg->gnss_data.details.gnss.satellites_tracked;
@@ -179,6 +182,7 @@ static enum smf_state_result waiting_location_run(void *o) {
                     }
                 }
             }
+#endif /* CONFIG_APP_LED */
 
             state->location_received = true;
             lt_state_name = "waiting_cloud";

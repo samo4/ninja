@@ -19,7 +19,9 @@
 
 #include "app_common.h"
 #include "cloud_post.h"
+#if defined(CONFIG_APP_LED)
 #include "led.h"
+#endif
 #include "location.h"
 #include "network.h"
 
