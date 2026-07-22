@@ -60,7 +60,7 @@ static int pwm_out(const struct led_msg *led_msg, bool force_off) {
 #define PWM_PERIOD PWM_USEC(255)
 
     /* If force_off is true, turn off all LEDs regardless of led_msg values */
-    uint8_t red = force_off ? 0 : led_msg->red;
+    uint8_t red = force_off ? 0 : (uint8_t)((led_msg->red * 25) / 100);
     uint8_t green = force_off ? 0 : led_msg->green;
 
     if (!pwm_is_ready_dt(&pwm_led0)) {
