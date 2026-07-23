@@ -190,13 +190,9 @@ static enum smf_state_result disconnecting_run(void *o) {
 }
 
 static void sleeping_entry(void *o) {
-    struct empty_state_object *state = (struct empty_state_object *)o;
+    ARG_UNUSED(o);
     empty_state_name = "sleeping";
-    LOG_INF("sleeping with modem off forever — done");
-
-#if defined(CONFIG_APP_LED)
-    LED_BLINK_RED(10);
-#endif /* CONFIG_APP_LED */
+    LOG_INF("sleeping with modem off forever");
 }
 
 static enum smf_state_result sleeping_run(void *o) {
