@@ -133,15 +133,15 @@ struct network_msg {
 };
 
 /** Convenience macro: publish a network message of the given type. */
-#define PUBLISH_NETWORK(msg_type)                                    \
-    do {                                                             \
-        LOG_DBG("Publishing " #msg_type);                            \
-        const struct network_msg _msg = {.type = (msg_type)};        \
-        int _err = zbus_chan_pub(&network_chan, &_msg, PUB_TIMEOUT); \
-        if (_err) {                                                  \
+#define PUBLISH_NETWORK(msg_type)                                        \
+    do {                                                                 \
+        LOG_DBG("Publishing " #msg_type);                                \
+        const struct network_msg _msg = {.type = (msg_type)};            \
+        int _err = zbus_chan_pub(&network_chan, &_msg, PUB_TIMEOUT);     \
+        if (_err) {                                                      \
             LOG_ERR("Failed to publish " #msg_type ", error: %d", _err); \
-            SEND_FATAL_ERROR();                                      \
-        }                                                            \
+            SEND_FATAL_ERROR();                                          \
+        }                                                                \
     } while (0)
 
 /**
