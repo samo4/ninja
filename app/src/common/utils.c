@@ -140,6 +140,8 @@ int http_fetch_chunked(const char *url, const char *content_type, const char *bo
     }
     *out_len = 0;
 
+    LOG_INF("fetch %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT, url, body);
+
     if (chunk_size > HTTP_CHUNK_MAX_PAYLOAD) {
         LOG_ERR("chunk_size %zu exceeds maximum %u", chunk_size, HTTP_CHUNK_MAX_PAYLOAD);
         return -EINVAL;

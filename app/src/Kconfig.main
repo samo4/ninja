@@ -47,7 +47,7 @@ endchoice
 
 config APP_SAMPLING_INTERVAL_SECONDS
 	int "Sampling interval"
-	default 300
+	default 600
 	help
 	  Interval in seconds that determines how often sensor and location data is
 	  collected.
