@@ -42,6 +42,17 @@ struct motion_msg {
     int64_t timestamp;
 };
 
+/** Convenience macro: publish a motion message of the given type. */
+#define PUBLISH_MOTION(msg_type) \
+    do { \
+        const struct motion_msg _msg = { .type = (msg_type) }; \
+        int _err = zbus_chan_pub(&motion_chan, &_msg, PUB_TIMEOUT); \
+        if (_err) { \
+            LOG_ERR("Failed to publish motion message, error: %d", _err); \
+            SEND_FATAL_ERROR(); \
+        } \
+    } while (0)
+
 /**
  * @brief Get the current FSM state name of the motion module.
  *

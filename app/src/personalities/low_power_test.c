@@ -74,18 +74,12 @@ const char *personality_state_str(void) { return lp_state_name ? lp_state_name :
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 static void fire_sample(struct low_power_state_object *state) {
+    int err = 0;
+
 #if defined(CONFIG_APP_MOTION)
-    struct motion_msg req = {
-        .type = MOTION_SAMPLE_REQUEST,
-    };
-
-    int err = zbus_chan_pub(&motion_chan, &req, PUB_TIMEOUT);
+    PUBLISH_MOTION(MOTION_SAMPLE_REQUEST);
 #elif defined(CONFIG_APP_ENVIRONMENTAL)
-    struct environmental_msg req = {
-        .type = ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
-    };
-
-    int err = zbus_chan_pub(&environmental_chan, &req, PUB_TIMEOUT);
+    PUBLISH_ENVIRONMENTAL(ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST);
 #endif
     if (err) {
         LOG_ERR("Failed to publish sensor request, error: %d", err);
@@ -100,13 +94,7 @@ static void fire_sample(struct low_power_state_object *state) {
 }
 
 static void request_disconnect(void) {
-    const struct network_msg msg = {.type = NETWORK_DISCONNECT};
-
-    int err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish NETWORK_DISCONNECT, error: %d", err);
-        SEND_FATAL_ERROR();
-    }
+    PUBLISH_NETWORK(NETWORK_DISCONNECT);
 }
 
 /* ── SMF states ─────────────────────────────────────────────────── */
@@ -189,8 +177,7 @@ static enum smf_state_result disconnecting_run(void *o) {
 static void sleeping_entry(void *o) {
     struct low_power_state_object *state = (struct low_power_state_object *)o;
     lp_state_name = "sleeping";
-    LOG_DBG("%s", __func__);
-    LOG_INF("sleeping with modem off for %us — measure power now", state->sample_interval_sec);
+    LOG_INF("sleeping with modem off for %us", state->sample_interval_sec);
     timer_arm(state->sample_interval_sec);
 }
 
@@ -207,7 +194,6 @@ static enum smf_state_result sleeping_run(void *o) {
 static void rebooting_entry(void *o) {
     ARG_UNUSED(o);
     lp_state_name = "rebooting";
-    LOG_DBG("%s", __func__);
     LOG_PANIC();
     k_sleep(K_SECONDS(10));
     sys_reboot(SYS_REBOOT_COLD);

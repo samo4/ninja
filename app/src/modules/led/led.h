@@ -42,6 +42,42 @@ struct led_msg {
     int repetitions;
 };
 
+/** Convenience macro: publish green LED blink pattern (250 ms on, 500 ms off, n reps). */
+#define LED_BLINK_GREEN(reps) \
+    do { \
+        const struct led_msg _led = { \
+            .type = LED_RGB_SET, \
+            .red = 0, \
+            .green = 100, \
+            .duration_on_msec = 250, \
+            .duration_off_msec = 500, \
+            .repetitions = (reps), \
+        }; \
+        int _err = zbus_chan_pub(&led_chan, &_led, PUB_TIMEOUT); \
+        if (_err) { \
+            LOG_ERR("Failed to publish LED pattern, error: %d", _err); \
+            SEND_FATAL_ERROR(); \
+        } \
+    } while (0)
+
+/** Convenience macro: publish red LED blink pattern (250 ms on, 500 ms off, n reps). */
+#define LED_BLINK_RED(reps) \
+    do { \
+        const struct led_msg _led = { \
+            .type = LED_RGB_SET, \
+            .red = 100, \
+            .green = 0, \
+            .duration_on_msec = 250, \
+            .duration_off_msec = 500, \
+            .repetitions = (reps), \
+        }; \
+        int _err = zbus_chan_pub(&led_chan, &_led, PUB_TIMEOUT); \
+        if (_err) { \
+            LOG_ERR("Failed to publish LED pattern, error: %d", _err); \
+            SEND_FATAL_ERROR(); \
+        } \
+    } while (0)
+
 #ifdef __cplusplus
 }
 #endif

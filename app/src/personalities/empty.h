@@ -21,18 +21,25 @@
 #include <zephyr/zbus/zbus.h>
 
 #include "app_common.h"
+#if defined(CONFIG_APP_LED)
+#include "led.h"
+#endif
+#if defined(CONFIG_APP_MOTION)
+#include "motion.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* No channels — the personality never subscribes to anything. */
+/* No channels — idle-only personality. */
 #define EMPTY_CHANNEL_LIST(X)
 
 #define EMPTY_MAX_MSG_SIZE 1
 
 /* SMF states */
 enum empty_state {
+    EMPTY_STATE_BLINKING,
     EMPTY_STATE_IDLE,
 };
 

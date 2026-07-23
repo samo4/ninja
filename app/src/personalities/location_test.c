@@ -88,21 +88,11 @@ static void fire_location_search(enum location_msg_type type) {
     }
 
     /* Sample the LIS2DTW12 temperature alongside the location request */
-    const struct motion_msg mot_req = {.type = MOTION_SAMPLE_REQUEST};
-    err = zbus_chan_pub(&motion_chan, &mot_req, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish motion sample request, error: %d", err);
-    }
+    PUBLISH_MOTION(MOTION_SAMPLE_REQUEST);
 }
 
 static void request_disconnect(void) {
-    const struct network_msg msg = {.type = NETWORK_DISCONNECT};
-
-    int err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish NETWORK_DISCONNECT, error: %d", err);
-        SEND_FATAL_ERROR();
-    }
+    PUBLISH_NETWORK(NETWORK_DISCONNECT);
 }
 
 /* ── SMF states ─────────────────────────────────────────────────── */
@@ -160,31 +150,22 @@ static enum smf_state_result waiting_location_run(void *o) {
         if (msg->type == LOCATION_DATA) {
             LOG_INF("fix received (lat=%.6f, lon=%.6f, acc=%.1f)", msg->gnss_data.latitude, msg->gnss_data.longitude,
                     (double)msg->gnss_data.accuracy);
-
-#if defined(CONFIG_APP_LED)
-            /* Blink green LED on GNSS satellite count change */
-            if (state->is_gnss_search) {
-                int satellites = msg->gnss_data.details.gnss.satellites_tracked;
-                LOG_INF("GNSS satellites tracked: %d", satellites);
-                if (satellites > 0 && satellites != state->last_satellites_tracked) {
-                    state->last_satellites_tracked = satellites;
-                    const struct led_msg led = {
-                        .type = LED_RGB_SET,
-                        .red = 0,
-                        .green = 255,
-                        .duration_on_msec = 200,
-                        .duration_off_msec = 200,
-                        .repetitions = satellites,
-                    };
-                    int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
-                    if (err) {
-                        LOG_ERR("Failed to publish LED message, error: %d", err);
-                    }
-                }
-            }
-#endif /* CONFIG_APP_LED */
-
             state->location_received = true;
+
+            /* Forward location data to cloud_post for HTTP POST */
+            const struct cloud_post_data post_data = {
+                .latitude = msg->gnss_data.latitude,
+                .longitude = msg->gnss_data.longitude,
+                .accuracy = msg->gnss_data.accuracy,
+                .is_gnss_search = state->is_gnss_search,
+            };
+            int err = zbus_chan_pub(&cloud_post_data_chan, &post_data, PUB_TIMEOUT);
+            if (err) {
+                LOG_ERR("Failed to publish cloud_post_data, error: %d", err);
+                SEND_FATAL_ERROR();
+                return SMF_EVENT_HANDLED;
+            }
+
             lt_state_name = "waiting_cloud";
             timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
             smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
@@ -202,16 +183,19 @@ static enum smf_state_result waiting_location_run(void *o) {
 
     if (state->chan == &timer_chan) {
         LOG_WRN("location timeout — no fix obtained, sending empty");
-        /* Publish zero-filled LOCATION_DATA to trigger cloud_post to send
-         * with empty coordinates. This replaces the old LOCATION_SEARCH_DONE
-         * trigger that fired prematurely for cellular.
-         */
-        const struct location_msg empty = {
-            .type = LOCATION_DATA,
-            .gnss_data = {0},
-            .timestamp = k_uptime_get(),
+        /* Publish zero-filled data to cloud_post so it sends empty coordinates. */
+        const struct cloud_post_data empty = {
+            .latitude = 0.0,
+            .longitude = 0.0,
+            .accuracy = 0.0f,
+            .is_gnss_search = state->is_gnss_search,
         };
-        zbus_chan_pub(&location_chan, &empty, PUB_TIMEOUT);
+        int err = zbus_chan_pub(&cloud_post_data_chan, &empty, PUB_TIMEOUT);
+        if (err) {
+            LOG_ERR("Failed to publish cloud_post_data, error: %d", err);
+            SEND_FATAL_ERROR();
+            return SMF_EVENT_HANDLED;
+        }
         lt_state_name = "waiting_cloud";
         timer_arm(CLOUD_POST_FALLBACK_TIMEOUT_SECONDS);
         smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_CLOUD]);
@@ -320,22 +304,7 @@ static void sleeping_entry(void *o) {
     LOG_INF("sleeping with modem off for %us — measure power now", state->sample_interval_sec);
 
 #if defined(CONFIG_APP_LED)
-    LOG_ERR("Setting LED to indicate sample request TODO: REMOVE ME");
-    struct led_msg led = {
-        .type = LED_RGB_SET,
-        .red = 100,
-        .green = 0,
-        .duration_on_msec = 250,
-        .duration_off_msec = 1000,
-        .repetitions = 10,
-    };
-
-    int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish LED pattern, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    LED_BLINK_RED(10);
 #endif /* CONFIG_APP_LED */
 
     timer_arm(state->sample_interval_sec);
@@ -358,12 +327,7 @@ static void connecting_entry(void *o) {
     /* Request LTE connection so the modem is initialized and GNSS becomes
      * available. Previously the modem was put offline during SLEEPING.
      */
-    const struct network_msg connect_msg = {.type = NETWORK_CONNECT};
-    int err = zbus_chan_pub(&network_chan, &connect_msg, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish NETWORK_CONNECT, error: %d", err);
-        SEND_FATAL_ERROR();
-    }
+    PUBLISH_NETWORK(NETWORK_CONNECT);
 }
 
 static enum smf_state_result connecting_run(void *o) {

@@ -81,18 +81,8 @@ static void request_lte_connect(void) {
     if (mod.connect_requested) {
         return;
     }
-
-    const struct network_msg msg = {.type = NETWORK_CONNECT};
-
-    int err = zbus_chan_pub(&network_chan, &msg, PUB_TIMEOUT);
-
-    if (err) {
-        LOG_ERR("Failed to request NETWORK_CONNECT: %d", err);
-        return;
-    }
-
+    PUBLISH_NETWORK(NETWORK_CONNECT);
     mod.connect_requested = true;
-    LOG_INF("LTE connect requested");
 }
 
 static void publish_result(enum location_cloud_msg_type type, int http_status) {
@@ -100,7 +90,6 @@ static void publish_result(enum location_cloud_msg_type type, int http_status) {
         .type = type,
         .http_status = http_status,
     };
-
     int err = zbus_chan_pub(&location_cloud_chan, &msg, PUB_TIMEOUT);
     if (err) {
         LOG_ERR("Failed to publish location cloud result: %d", err);
@@ -137,13 +126,8 @@ static int fetch_agnss_data(const struct nrf_modem_gnss_agnss_data_frame *agnss_
         LOG_ERR("Failed to serialise A-GNSS request");
         return -ENOMEM;
     }
-
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT, CONFIG_APP_LOCATION_CLOUD_AGNSS_URL,
-            request_body);
-
     static uint8_t full_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
-
     int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_AGNSS_URL, "application/json", request_body, body_len,
                                  CHUNK_SIZE, full_buf, sizeof(full_buf), &total_len);
     if (err) {
@@ -230,18 +214,12 @@ static int send_cellular_cloud_request(const struct location_cloud_request_data 
                              (unsigned int)cloud_req->gci_cells[i].id, (unsigned int)cloud_req->gci_cells[i].tac,
                              (unsigned int)cloud_req->gci_cells[i].earfcn, -cloud_req->gci_cells[i].rsrp);
     }
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "]");
-
-    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "}");
-
+    body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "]}");
+    // body_len += snprintf(request_body + body_len, sizeof(request_body) - body_len, "}");
     if (body_len < 0 || body_len >= (int)sizeof(request_body)) {
         LOG_ERR("Failed to serialise cellular cloud request");
         return -ENOMEM;
     }
-
-    LOG_INF("Sending to %s:%d%s: %s", CONFIG_APP_CLOUD_HOST, CONFIG_APP_CLOUD_PORT,
-            CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, request_body);
-
     static uint8_t cell_buf[CONFIG_APP_LOCATION_CLOUD_BUFFER_SIZE];
     size_t total_len = 0;
     int err = http_fetch_chunked(CONFIG_APP_LOCATION_CLOUD_CELLULAR_URL, "application/json", request_body, body_len,

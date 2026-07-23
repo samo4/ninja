@@ -66,36 +66,15 @@ static void timer_arm(uint32_t delay_sec) {
 
 static void fire_sample(struct reporting_state *state) {
 #if defined(CONFIG_APP_LED)
-    LOG_INF("Setting LED to indicate sample request");
-    struct led_msg led = {
-        .type = LED_RGB_SET,
-        .red = 0,
-        .green = 100,
-        .duration_on_msec = 250,
-        .duration_off_msec = 1000,
-        .repetitions = 20,
-    };
-
-    int err = zbus_chan_pub(&led_chan, &led, PUB_TIMEOUT);
-    if (err) {
-        LOG_ERR("Failed to publish LED pattern, error: %d", err);
-        SEND_FATAL_ERROR();
-        return;
-    }
+    LED_BLINK_GREEN(20);
 #endif /* CONFIG_APP_LED */
 
+    int err;
+
 #if defined(CONFIG_APP_MOTION)
-    struct motion_msg req = {
-        .type = MOTION_SAMPLE_REQUEST,
-    };
-
-    err = zbus_chan_pub(&motion_chan, &req, PUB_TIMEOUT);
+    PUBLISH_MOTION(MOTION_SAMPLE_REQUEST);
 #elif defined(CONFIG_APP_ENVIRONMENTAL)
-    struct environmental_msg req = {
-        .type = ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST,
-    };
-
-    err = zbus_chan_pub(&environmental_chan, &req, PUB_TIMEOUT);
+    PUBLISH_ENVIRONMENTAL(ENVIRONMENTAL_SENSOR_SAMPLE_REQUEST);
 #endif
     if (err) {
         LOG_ERR("Failed to publish sensor request, error: %d", err);

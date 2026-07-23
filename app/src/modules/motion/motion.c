@@ -107,7 +107,7 @@ static int init_sensor(void) {
 static int configure_sensor(void) {
     int err;
 
-    /* Route wake-up interrupt to INT1 pin */
+    // Route wake-up interrupt to INT1
     lis2dtw12_ctrl4_int1_pad_ctrl_t int1_route = {.int1_wu = 1};
     err = lis2dtw12_pin_int1_route_set(driver_ctx, &int1_route);
     if (err) {
@@ -115,8 +115,9 @@ static int configure_sensor(void) {
         return err;
     }
 
-    /* Wake-up threshold: ~188 mg at ±2g */
-    err = lis2dtw12_wkup_threshold_set(driver_ctx, WKUP_THR_188mg_AT_2g);
+    // from 0 to 2^5 - 1 it indicates the percentage of the full scale
+    // so at 6: 6/32 * 2g = 0.375g = 375mg or thereabouts
+    err = lis2dtw12_wkup_threshold_set(driver_ctx, 0x06);
     if (err) {
         LOG_ERR("WKUP threshold set failed: %d", err);
         return err;
@@ -198,20 +199,11 @@ static int run_self_test(void) {
 
 static double read_temperature(void) {
     int16_t raw;
-    int err;
-
-    err = lis2dtw12_temperature_raw_get(driver_ctx, &raw);
+    int err = lis2dtw12_temperature_raw_get(driver_ctx, &raw);
     if (err) {
         LOG_ERR("LIS2DTW12 temperature read failed: %d", err);
         return -1.0;
     }
-
-    /*
-     * ST driver returns raw value as 16-bit two's complement.
-     * For left-justified 12-bit data: shift right by 4 to get
-     * a right-justified 12-bit value, sign-extend from 12 bits,
-     * then apply sensitivity: 0.0625 C/LSB, offset 25 C.
-     */
     int16_t raw_12bit = raw >> 4;
     return ((double)raw_12bit / 16.0) + 25.0;
 }
@@ -223,7 +215,6 @@ static void sample_temperature(void) {
         .temperature = temperature,
         .timestamp = k_uptime_get(),
     };
-
     int err = zbus_chan_pub(&motion_chan, &msg, PUB_TIMEOUT);
     if (err) {
         LOG_ERR("zbus_chan_pub, error: %d", err);

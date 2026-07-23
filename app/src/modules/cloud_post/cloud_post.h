@@ -17,6 +17,12 @@ extern "C" {
 /* Channels provided by this module */
 ZBUS_CHAN_DECLARE(cloud_post_chan);
 
+/* Channel for personalities to submit data for cloud POST.
+ * Personality modules publish struct cloud_post_data on this channel
+ * to trigger cloud_post to send the data via HTTP.
+ */
+ZBUS_CHAN_DECLARE(cloud_post_data_chan);
+
 enum cloud_post_msg_type {
     CLOUD_POST_SEND_DONE,
     CLOUD_POST_SEND_FAILED,
@@ -25,6 +31,14 @@ enum cloud_post_msg_type {
 struct cloud_post_msg {
     enum cloud_post_msg_type type;
     int http_status;
+};
+
+/** Data submitted by personality modules for cloud POST. */
+struct cloud_post_data {
+    double latitude;
+    double longitude;
+    float accuracy;
+    bool is_gnss_search;
 };
 
 #ifdef __cplusplus
