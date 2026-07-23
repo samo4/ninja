@@ -36,6 +36,13 @@ config APP_PERSONALITY_LOCATION_TEST
 	  sleep with modem off → repeat.  Reuses cloud_post for
 	  HTTP.  If no location is found, sends an empty POST.
 
+config APP_PERSONALITY_EMPTY
+	bool "Empty"
+	help
+	  Idle personality that does nothing.  No sensors, no cloud,
+	  no network interaction — only a periodic timer tick.
+	  Useful as a skeleton, build test, or minimal-power baseline.
+
 endchoice
 
 config APP_SAMPLING_INTERVAL_SECONDS

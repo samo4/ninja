@@ -60,6 +60,15 @@
 #define personality_init location_test_init
 #define personality_process location_test_process
 
+#elif defined(CONFIG_APP_PERSONALITY_EMPTY)
+#include "personalities/empty.h"
+
+#define PERSONALITY_CHANNEL_LIST EMPTY_CHANNEL_LIST
+#define PERSONALITY_MAX_MSG_SIZE EMPTY_MAX_MSG_SIZE
+#define PERSONALITY_STATE struct empty_state_object
+#define personality_init empty_init
+#define personality_process empty_process
+
 #else
 #error "No personality selected!"
 #endif

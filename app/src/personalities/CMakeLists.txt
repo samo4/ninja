@@ -14,5 +14,8 @@ target_sources_ifdef(CONFIG_APP_PERSONALITY_LOW_POWER_TEST app PRIVATE
 target_sources_ifdef(CONFIG_APP_PERSONALITY_LOCATION_TEST app PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/location_test.c
 )
+target_sources_ifdef(CONFIG_APP_PERSONALITY_EMPTY app PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/empty.c
+)
 
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
