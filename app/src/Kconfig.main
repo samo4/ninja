@@ -38,10 +38,13 @@ config APP_PERSONALITY_LOCATION_TEST
 
 config APP_PERSONALITY_EMPTY
 	bool "Empty"
+	depends on APP_CLOUD_POST
 	help
-	  Idle personality that does nothing.  No sensors, no cloud,
-	  no network interaction — only a periodic timer tick.
-	  Useful as a skeleton, build test, or minimal-power baseline.
+	  Same flow as Location Test, but instead of requesting location
+	  data it immediately publishes an empty location package to
+	  cloud_post.  Runs once: connect → send → disconnect → sleep
+	  forever.  Useful as a power measurement baseline that still
+	  exercises the full LTE + cloud path.
 
 endchoice
 

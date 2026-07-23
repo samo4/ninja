@@ -86,14 +86,10 @@ static void fire_location_search(enum location_msg_type type) {
         SEND_FATAL_ERROR();
         return;
     }
-
-    /* Sample the LIS2DTW12 temperature alongside the location request */
     PUBLISH_MOTION(MOTION_SAMPLE_REQUEST);
 }
 
-static void request_disconnect(void) {
-    PUBLISH_NETWORK(NETWORK_DISCONNECT);
-}
+static void request_disconnect(void) { PUBLISH_NETWORK(NETWORK_DISCONNECT); }
 
 /* ── SMF states ─────────────────────────────────────────────────── */
 
