@@ -115,15 +115,20 @@ static int configure_sensor(void) {
         return err;
     }
 
-    // from 0 to 2^5 - 1 it indicates the percentage of the full scale
-    // so at 6: 6/32 * 2g = 0.375g = 375mg or thereabouts
-    err = lis2dtw12_wkup_threshold_set(driver_ctx, 0x06);
+    const uint8_t thr = 0x06;
+
+    // From the LIS2DW12 datasheet: WK_THS[5:0] = thr
+    // Threshold [mg] = thr * full_scale_g / 32 * 1000
+    // full_scale_g comes from the DTS `range` property.
+#define MOTION_FS_G DT_PROP(DT_NODELABEL(lis2dtw12), range)
+    const int thr_mg = (thr * MOTION_FS_G * 1000) / 32;
+    err = lis2dtw12_wkup_threshold_set(driver_ctx, thr);
     if (err) {
         LOG_ERR("WKUP threshold set failed: %d", err);
         return err;
     }
 
-    LOG_INF("Wake-up configured on INT1, threshold=188mg");
+    LOG_INF("Wake-up configured on INT1, thr=0x%02X (%d mg @ %dg FS)", thr, thr_mg, MOTION_FS_G);
     return 0;
 }
 

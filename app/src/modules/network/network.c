@@ -274,9 +274,9 @@ static void request_system_mode(void) {
 
 static int network_disconnect(void) {
     intentional_disconnect = true;
-    int err = lte_lc_offline();
+    int err = lte_lc_power_off(); // not lte_lc_offline
     if (err) {
-        LOG_ERR("lte_lc_offline, error: %d", err);
+        LOG_ERR("lte_lc_power_off, error: %d", err);
         return err;
     }
     return 0;

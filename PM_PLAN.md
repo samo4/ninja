@@ -29,7 +29,7 @@ Achieve **sub-10 µA sleep** current on the nRF9160 in the Empty personality
 
 - Still **well under 10 µA** when implemented correctly
 - **Dramatically simpler** — no GPIO SENSE, no open-drain, no SPI pin release, no TF-M coordination
-- **Resumes code** — no full reboot, no modem re-init needed (the modem is already off via `lte_lc_offline()`)
+- **Resumes code** — no full reboot, no modem re-init needed (the modem is fully powered off via `lte_lc_power_off()` before sleep)
 - **RTC periodic wake** is built-in, no external hardware needed
 - The motion module's existing `GPIO_INT_LEVEL_HIGH` already uses **SENSE + PORT event** (no GPIOTE channel) — it works for both active and sleep modes
 
@@ -54,22 +54,22 @@ stopping it.
 
 ### 3.1 What Already Exists
 
-| Area                                     | Status                                                                                                                   | Notes                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `CONFIG_PM=y`                            | ✅ `prj.conf`                                                                                                            | Enables Zephyr power management                                      |
-| `CONFIG_PM_DEVICE=y`                     | ✅ `prj.conf`                                                                                                            | Enables device PM                                                    |
-| `CONFIG_PM_DEVICE_RUNTIME=y`             | ✅ `prj.conf`                                                                                                            | Auto-suspends unused peripherals                                     |
-| Modem offline before sleep               | ✅ `lte_lc_offline()` called in `network_disconnect()`                                                                   | Goes to `STATE_DISCONNECTED_IDLE`                                    |
-| GPIOTE for motion wake                   | ✅ Already works                                                                                                         | `GPIO_INT_LEVEL_HIGH` on P0.30 — uses SENSE+PORT, not GPIOTE channel |
-| Main thread blocks on zbus               | ✅ `zbus_sub_wait_msg()`                                                                                                 | Thread is idle when no messages                                      |
-| Motion thread blocks on zbus             | ✅ Same pattern                                                                                                          | Thread is idle                                                       |
-| Network thread blocks on zbus            | ✅ Same pattern                                                                                                          | Thread is idle                                                       |
-| `sys_power_state_set(PM_STATE_SOFT_OFF)` | ❌ called but never reaches idle — **dead code pattern**                                                                 |
-| GPIO SENSE (low-power wake-up)           | ✅ **Already active** — `GPIO_INT_LEVEL_HIGH` on nRF9160 sets SENSE in PIN_CNF and uses PORT event, not a GPIOTE channel |
-| LIS2DTW12 INT pin open-drain             | ❌ default push-pull will leak into nRF9160 in System OFF                                                                |
-| Modem fully shut down before sleep       | ❌ `lte_lc_offline()` only, modem library still initialized                                                              |
-| SPI pins released before sleep           | ❌ `low-power-enable` in pinctrl helps in System ON but not System OFF                                                   |
-| All threads stopped before sleep         | ❌ network, motion, main threads still alive                                                                             |
+| Area                                       | Status                                                                                                                   | Notes                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `CONFIG_PM=y`                              | ✅ `prj.conf`                                                                                                            | Enables Zephyr power management                                                                          |
+| `CONFIG_PM_DEVICE=y`                       | ✅ `prj.conf`                                                                                                            | Enables device PM                                                                                        |
+| `CONFIG_PM_DEVICE_RUNTIME=y`               | ✅ `prj.conf`                                                                                                            | Auto-suspends unused peripherals                                                                         |
+| Modem set to offline (RF off) before sleep | ✅ `lte_lc_offline()` called in `network_disconnect()` — RF off, but modem still powered                                 | Goes to `STATE_DISCONNECTED_IDLE` — insufficient alone, need `lte_lc_power_off()` in `enter_wfi_sleep()` |
+| GPIOTE for motion wake                     | ✅ Already works                                                                                                         | `GPIO_INT_LEVEL_HIGH` on P0.30 — uses SENSE+PORT, not GPIOTE channel                                     |
+| Main thread blocks on zbus                 | ✅ `zbus_sub_wait_msg()`                                                                                                 | Thread is idle when no messages                                                                          |
+| Motion thread blocks on zbus               | ✅ Same pattern                                                                                                          | Thread is idle                                                                                           |
+| Network thread blocks on zbus              | ✅ Same pattern                                                                                                          | Thread is idle                                                                                           |
+| `sys_power_state_set(PM_STATE_SOFT_OFF)`   | ❌ called but never reaches idle — **dead code pattern**                                                                 |
+| GPIO SENSE (low-power wake-up)             | ✅ **Already active** — `GPIO_INT_LEVEL_HIGH` on nRF9160 sets SENSE in PIN_CNF and uses PORT event, not a GPIOTE channel |
+| LIS2DTW12 INT pin open-drain               | ❌ default push-pull will leak into nRF9160 in System OFF                                                                |
+| Modem fully shut down before sleep         | ❌ `lte_lc_offline()` only, modem library still initialized                                                              |
+| SPI pins released before sleep             | ❌ `low-power-enable` in pinctrl helps in System ON but not System OFF                                                   |
+| All threads stopped before sleep           | ❌ network, motion, main threads still alive                                                                             |
 
 ### 3.2 Why ~40 µA Floor Currently
 
@@ -82,8 +82,8 @@ The ~40 µA is the nRF9160 with HFCLK running (active System ON). Suspects:
    already configured in the lowest-power way possible for System ON sleep.
 
 2. **Modem library initialized** — `nrf_modem_lib_init()` was called. Even after
-   `lte_lc_offline()`, the modem library holds internal resources.
-   - **Fix:** `nrf_modem_lib_shutdown()` before sleep.
+   `lte_lc_power_off()`, the modem library holds internal resources.
+   - **Fix:** `lte_lc_power_off()` before sleep (called from `enter_wfi_sleep()`).
 
 3. **SPI2** — `spi2` is enabled and may keep its peripheral clock running even
    when idle, depending on `CONFIG_PM_DEVICE_RUNTIME` behaviour.
@@ -214,10 +214,9 @@ while (1) {
 
 ```c
 #include <zephyr/logging/log.h>
-#include <nrf_modem.h>
 #include "sleep.h"
-#include "motion.h"
 #include "network.h"
+#include "motion.h"
 #include "heartbeat.h"
 
 void enter_wfi_sleep(void) {
@@ -229,25 +228,17 @@ void enter_wfi_sleep(void) {
     // Step 2: Cancel all personality timers
     // (handled in Phase 1.3 — cancel in sleeping_entry)
 
-    // Step 3: Shut down the modem library fully
-    // (modem is already in offline mode from network_disconnect)
-    nrf_modem_lib_shutdown();
+    // Step 3: Fully power off the modem
+    lte_lc_power_off();
 
-    // Step 4: Motion module
-    // No GPIO re-configuration needed — `GPIO_INT_LEVEL_HIGH` already uses
-    // SENSE + PORT event (no GPIOTE channel). The sensor stays active,
-    // INT1 continues to assert on motion, DETECT wakes the CPU from WFI.
-    // Only delete the task WDT entry so it doesn't fire during sleep:
-    motion_suspend_wdt();
-
-    // Step 5: Delete task WDT entries (so they don't fire during sleep)
+    // Step 4: Suspend task WDT entries (so they don't fire during sleep)
     network_suspend_wdt();
     motion_suspend_wdt();
 
-    // Step 6: Flush pending logs
+    // Step 5: Flush pending logs
     LOG_PANIC();
 
-    // Step 7: Return — the idle thread will now run → WFI → ~2-5 µA
+    // Step 6: Return — the idle thread will now run → WFI → ~2-5 µA
     // Any interrupt (motion on P0.30, RTC timer) wakes the CPU.
     LOG_INF("Sleeping: motion or periodic timer will wake the device");
 }
@@ -264,18 +255,14 @@ naturally in the idle thread.
 void wake_init(void) {
     LOG_INF("Woke from deep sleep, re-initializing...");
 
-    // Step 1: Re-init the modem library
-    nrf_modem_lib_init();
+    // Step 1: Power on the modem (modem hardware + library)
+    network_power_on();
 
-    // Step 2: Resume motion module (re-add task WDT)
-    // No GPIO re-configuration needed — SENSE+PORT event was never changed.
-    motion_resume_wdt();
-
-    // Step 3: Re-arm WDT entries
+    // Step 2: Resume task WDT entries
     network_resume_wdt();
     motion_resume_wdt();
 
-    // Step 4: Restart heartbeat
+    // Step 3: Restart heartbeat
     heartbeat_start();
 
     LOG_INF("Wake init complete");
@@ -323,41 +310,21 @@ void network_resume_wdt(void);
 
 Same WDT pattern as motion module.
 
-#### [ ] 4.2 Modem library re-init on wake
+#### [ ] 4.2 Modem power-on on wake
 
-The network module's `state_running_entry` already calls
-`nrf_modem_lib_init()`. However, after `nrf_modem_lib_shutdown()`,
-the next `nrf_modem_lib_init()` should work fine (it re-initializes
-the modem library).
+`wake_init()` calls `network_power_on()`, which calls
+`lte_lc_power_on()` to power up the modem hardware and re-initialize
+the modem library. After this, the modem is ready for
+`lte_lc_connect_async()` to register and connect.
 
-But there's a sequencing issue: `wake_init()` in `sleep.c` calls
-`nrf_modem_lib_init()` before the network module thread runs. The
-network module also calls `nrf_modem_lib_init()` in `state_running_entry`.
+The personality then sends `NETWORK_CONNECT` as normal.
+`state_disconnected_searching_entry()` calls
+`lte_lc_connect_async(lte_lc_evt_handler)`, which re-registers
+the event handler and starts the LTE attach sequence.
 
-**Fix:** Track the modem library init state or ensure `wake_init()`
-runs `nrf_modem_lib_init()` and the network module checks if it's
-already initialized. Or simply remove it from `wake_init()` and let
-the network module handle it when the personality requests a reconnect.
-
-**Simpler approach:** Don't call `nrf_modem_lib_init()` in `wake_init()`.
-Instead, the network module's `state_running_entry` will re-init it
-automatically when the personality publishes `NETWORK_CONNECT` and the
-state machine transitions through `STATE_RUNNING`.
-
-But wait — after `nrf_modem_lib_shutdown()`, the network module is in
-`STATE_DISCONNECTED_IDLE`. The personality publishes `NETWORK_CONNECT`,
-which transitions to `STATE_DISCONNECTED_SEARCHING`. But the modem
-library was shut down — `lte_lc_connect_async()` will fail.
-
-**Fix:** The network module's transition from `DISCONNECTED_IDLE` to
-`DISCONNECTED_SEARCHING` must first call `nrf_modem_lib_init()`. Or,
-detect the shutdown state and re-init.
-
-**Cleanest approach:** Add a `network_resume()` function that:
-
-1. Calls `nrf_modem_lib_init()` if needed
-2. Re-registers the LTE handler
-3. Then the personality sends `NETWORK_CONNECT` as normal
+This avoids any sequencing issues — `wake_init()` handles the
+modem power-on cleanly before the network thread processes
+the connect request.
 
 ---
 
@@ -531,9 +498,9 @@ kept running by the motion interrupt. No fallback or reconfiguration is needed.
    - `K_SECONDS(604800)` may overflow internal tick math (~18 h limit)
    - May need chained timers or RTC HAL compare registers
 
-3. **`nrf_modem_lib_shutdown()` + re-init sequencing?**
-   - Does the network module handle re-init gracefully?
-   - Need to test: shutdown → wake → connect → works?
+3. **`lte_lc_power_off()` + `lte_lc_power_on()` + re-connect sequencing?**
+   - Does the network module handle full power cycle gracefully?
+   - Need to test: power_off → wake → power_on → connect → works?
 
 4. **Does the LIS2DTW12 SPI bus properly suspend via `CONFIG_PM_DEVICE_RUNTIME`?**
    - After sensor goes to power-down and no more SPI transactions,
