@@ -56,7 +56,7 @@ stopping it.
 
 | Area                                       | Status                                                                                                                   | Notes                                                                                                    |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `CONFIG_PM=y`                              | ✅ `prj.conf`                                                                                                            | Enables Zephyr power management                                                                          |
+| `CONFIG_PM=y`                              | ❌ `prj.conf`                                                                                                            | Enables Zephyr power management                                                                          |
 | `CONFIG_PM_DEVICE=y`                       | ✅ `prj.conf`                                                                                                            | Enables device PM                                                                                        |
 | `CONFIG_PM_DEVICE_RUNTIME=y`               | ✅ `prj.conf`                                                                                                            | Auto-suspends unused peripherals                                                                         |
 | Modem set to offline (RF off) before sleep | ✅ `lte_lc_offline()` called in `network_disconnect()` — RF off, but modem still powered                                 | Goes to `STATE_DISCONNECTED_IDLE` — insufficient alone, need `lte_lc_power_off()` in `enter_wfi_sleep()` |
@@ -396,7 +396,7 @@ Each module stores its `task_wdt_id` at module scope and provides
 #### [ ] 7.1 Ensure these are set
 
 ```
-CONFIG_PM=y               # already set
+CONFIG_PM=y               # in non-PM context setting it to Y causes the modem to stay on after lte_lc_power_off
 CONFIG_PM_DEVICE=y         # already set
 CONFIG_PM_DEVICE_RUNTIME=y # already set
 CONFIG_TICKLESS_IDLE=y     # default in Zephyr
