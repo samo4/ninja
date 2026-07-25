@@ -24,6 +24,12 @@ LOG_MODULE_REGISTER(network, CONFIG_APP_NETWORK_LOG_LEVEL);
 /* Current FSM state name (for heartbeat reporting). */
 static const char *net_state_str;
 
+/* Tracks whether a network disconnect was initiated intentionally.
+ * Used to avoid misleading "Network search failed" messages following
+ * a deliberate disconnect request.
+ */
+static bool intentional_disconnect;
+
 BUILD_ASSERT(CONFIG_APP_NETWORK_WATCHDOG_TIMEOUT_SECONDS > CONFIG_APP_NETWORK_MSG_PROCESSING_TIMEOUT_SECONDS,
              "Watchdog timeout must be greater than maximum message processing time");
 
@@ -137,13 +143,18 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
     switch (evt->type) {
         case LTE_LC_EVT_NW_REG_STATUS:
             if (evt->nw_reg_status == LTE_LC_NW_REG_UICC_FAIL) {
+                intentional_disconnect = false;
                 LOG_INF(VT100_RED "Network search failed" VT100_RESET);
                 LOG_ERR("No SIM card detected!");
                 network_status_notify(NETWORK_UICC_FAILURE);
             } else if (evt->nw_reg_status == LTE_LC_NW_REG_NOT_REGISTERED) {
-                LOG_INF(VT100_RED "Network search failed" VT100_RESET);
-                LOG_WRN("Not registered, check rejection cause");
-                network_status_notify(NETWORK_ATTACH_REJECTED);
+                if (intentional_disconnect) {
+                    LOG_INF(VT100_YELLOW "No longer registered (intentional disconnect)" VT100_RESET);
+                } else {
+                    LOG_INF(VT100_RED "Network search failed" VT100_RESET);
+                    LOG_WRN("Not registered, check rejection cause");
+                    network_status_notify(NETWORK_ATTACH_REJECTED);
+                }
             } else if (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING) {
                 LOG_INF("NW reg status: %d (roaming)", evt->nw_reg_status);
             } else if (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME) {
@@ -262,6 +273,7 @@ static void request_system_mode(void) {
 }
 
 static int network_disconnect(void) {
+    intentional_disconnect = true;
     int err = lte_lc_offline();
     if (err) {
         LOG_ERR("lte_lc_offline, error: %d", err);
@@ -346,6 +358,7 @@ static enum smf_state_result state_disconnected_run(void *obj) {
 static void state_disconnected_searching_entry(void *obj) {
     ARG_UNUSED(obj);
     net_state_str = "searching...";
+    intentional_disconnect = false;
     LOG_INF(VT100_YELLOW "searching..." VT100_RESET);
     int err = lte_lc_connect_async(lte_lc_evt_handler);
     if (err) {
