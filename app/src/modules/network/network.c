@@ -177,13 +177,13 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
                 }
                 case LTE_LC_EVT_PDN_DEACTIVATED: {
                     k_work_cancel_delayable(&connected_dwork);
-                    LOG_INF(VT100_RED "deactivated" VT100_RESET);
+                    LOG_DBG("deactivated");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_NETWORK_DETACH: {
                     k_work_cancel_delayable(&connected_dwork);
-                    LOG_INF(VT100_RED "detach" VT100_RESET);
+                    LOG_DBG("detach");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
