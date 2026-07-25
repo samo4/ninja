@@ -11,6 +11,17 @@
 
 #include <net/rest_client.h>
 
+/* VT100/ANSI color codes for log messages. */
+#define VT100_BLACK "\x1b[30m"
+#define VT100_RED "\x1b[31m"
+#define VT100_GREEN "\x1b[32m"
+#define VT100_YELLOW "\x1b[33m"
+#define VT100_BLUE "\x1b[34m"
+#define VT100_MAGENTA "\x1b[35m"
+#define VT100_CYAN "\x1b[36m"
+#define VT100_WHITE "\x1b[37m"
+#define VT100_RESET "\x1b[0m"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

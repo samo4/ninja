@@ -17,6 +17,7 @@
 #include "modem/modem_info.h"
 #include "module_state.h"
 #include "network.h"
+#include "utils.h"
 
 LOG_MODULE_REGISTER(network, CONFIG_APP_NETWORK_LOG_LEVEL);
 
@@ -128,7 +129,7 @@ static void network_msg_send(const struct network_msg *msg) {
 static struct k_work_delayable connected_dwork;
 
 static void connected_dwork_handler(struct k_work *work) {
-    LOG_INF("\x1b[32mNetwork ready\x1b[0m, notifying connected");
+    LOG_INF(VT100_GREEN "Network ready" VT100_RESET);
     network_status_notify(NETWORK_CONNECTED);
 }
 
@@ -136,9 +137,11 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
     switch (evt->type) {
         case LTE_LC_EVT_NW_REG_STATUS:
             if (evt->nw_reg_status == LTE_LC_NW_REG_UICC_FAIL) {
+                LOG_INF(VT100_RED "Network search failed" VT100_RESET);
                 LOG_ERR("No SIM card detected!");
                 network_status_notify(NETWORK_UICC_FAILURE);
             } else if (evt->nw_reg_status == LTE_LC_NW_REG_NOT_REGISTERED) {
+                LOG_INF(VT100_RED "Network search failed" VT100_RESET);
                 LOG_WRN("Not registered, check rejection cause");
                 network_status_notify(NETWORK_ATTACH_REJECTED);
             } else if (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING) {
@@ -163,19 +166,19 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
                 }
                 case LTE_LC_EVT_PDN_DEACTIVATED: {
                     k_work_cancel_delayable(&connected_dwork);
-                    LOG_DBG("PDN connection deactivated");
+                    LOG_INF(VT100_RED "deactivated" VT100_RESET);
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_NETWORK_DETACH: {
                     k_work_cancel_delayable(&connected_dwork);
-                    LOG_DBG("PDN connection network detached");
+                    LOG_INF(VT100_RED "detach" VT100_RESET);
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_SUSPENDED: {
                     k_work_cancel_delayable(&connected_dwork);
-                    LOG_DBG("PDN connection suspended");
+                    LOG_INF("suspended");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
@@ -197,10 +200,10 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
                 LOG_WRN("The modem has detected a reset loop!");
                 network_status_notify(NETWORK_MODEM_RESET_LOOP);
             } else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE) {
-                LOG_DBG("LTE_LC_MODEM_EVT_LIGHT_SEARCH_DONE");
+                LOG_INF(VT100_RED "Network search failed" VT100_RESET);
                 network_status_notify(NETWORK_LIGHT_SEARCH_DONE);
             } else if (evt->modem_evt.type == LTE_LC_MODEM_EVT_SEARCH_DONE) {
-                LOG_DBG("LTE_LC_MODEM_EVT_SEARCH_DONE");
+                LOG_INF(VT100_RED "Network search failed" VT100_RESET);
                 network_status_notify(NETWORK_SEARCH_DONE);
             }
             break;
@@ -226,18 +229,18 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_LTE_MODE_UPDATE:
             LOG_INF("LTE mode: %s", evt->lte_mode == 7 ? "LTE-M" : evt->lte_mode == 9 ? "NB-IoT" : "other");
             break;
-        // case LTE_LC_EVT_RRC_UPDATE:
-        //     LOG_DBG("RRC state: %s", evt->rrc_mode ? "Connected" : "Idle");
-        //     break;
-        case LTE_LC_EVT_CELL_UPDATE:
-            LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
+        case LTE_LC_EVT_RRC_UPDATE:
+            //     LOG_DBG("RRC state: %s", evt->rrc_mode ? "Connected" : "Idle");
             break;
-        /*case LTE_LC_EVT_MODEM_SLEEP_EXIT:
-            LOG_DBG("Modem sleep exit");
+        case LTE_LC_EVT_CELL_UPDATE:
+            // LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
+            break;
+        case LTE_LC_EVT_MODEM_SLEEP_EXIT:
+            // LOG_DBG("Modem sleep exit");
             break;
         case LTE_LC_EVT_MODEM_SLEEP_ENTER:
-            LOG_DBG("Modem sleep enter (type %d)", evt->modem_sleep.type);
-            break;*/
+            // LOG_DBG("Modem sleep enter (type %d)", evt->modem_sleep.type);
+            break;
         default:
             LOG_DBG("Unhandled LTE event type: %d", evt->type);
             break;
@@ -342,8 +345,8 @@ static enum smf_state_result state_disconnected_run(void *obj) {
 
 static void state_disconnected_searching_entry(void *obj) {
     ARG_UNUSED(obj);
-    net_state_str = "searching";
-    LOG_DBG("calling lte_lc_connect_async");
+    net_state_str = "searching...";
+    LOG_INF(VT100_YELLOW "searching..." VT100_RESET);
     int err = lte_lc_connect_async(lte_lc_evt_handler);
     if (err) {
         LOG_ERR("lte_lc_connect_async, error: %d", err);

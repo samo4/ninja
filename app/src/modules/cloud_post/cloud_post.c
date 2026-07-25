@@ -60,8 +60,8 @@ static void cloud_post_send(void) {
         LOG_WRN("Failed to get modem battery voltage: %d", err);
         voltage_mv = -err;
     }
-    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f,%.6f,%.6f,%.1f", device_uid, voltage_mv, mod.temperature,
-             mod.location_latitude, mod.location_longitude, (double)mod.location_accuracy);
+    snprintf(csv_body, sizeof(csv_body), "%s,%d,%.2f,%.6f,%.6f,%.1f,%d", device_uid, voltage_mv, mod.temperature,
+             mod.location_latitude, mod.location_longitude, (double)mod.location_accuracy, mod.is_gnss_search);
     int status = http_fetch_chunked(CONFIG_APP_CLOUD_POST_URL, "text/csv", csv_body, strlen(csv_body), 1400, resp_buf,
                                     sizeof(resp_buf), &total_len);
     if (status == 0) {
@@ -72,10 +72,10 @@ static void cloud_post_send(void) {
         LOG_ERR("Cloud POST returned HTTP %d", status);
         struct cloud_post_msg fail_msg = {.type = CLOUD_POST_SEND_FAILED, .http_status = status};
         zbus_chan_pub(&cloud_post_chan, &fail_msg, PUB_TIMEOUT);
+        if (total_len > 0) {
+            rtt_dump_text((const char *)resp_buf, total_len);
+        }
     }
-    // if (total_len > 0) {
-    //     rtt_dump_text((const char *)resp_buf, total_len);
-    // }
 }
 
 TASK_WDT_CALLBACK_DEFINE(cloud_post)
