@@ -46,7 +46,7 @@ ZBUS_CHAN_ADD_OBS(motion_chan, motion, 0);
 
 static const stmdev_ctx_t *driver_ctx;
 
-/* GPIO interrupt for motion detection (PORT event, not SENSE) */
+/* GPIO interrupt for motion detection (PORT event via SENSE, no GPIOTE channel) */
 static const struct gpio_dt_spec motion_int = GPIO_DT_SPEC_GET(DT_NODELABEL(lis2dtw12), irq_gpios);
 static struct gpio_callback motion_int_cb_data;
 
@@ -153,8 +153,11 @@ static int configure_interrupt(void) {
         return err;
     }
 
-    /* Enable PORT event interrupt (level-high, not edge) — much lower
-     * power than edge-triggered GPIO SENSE on nRF9160.
+    /* Enable SENSE + PORT event interrupt (level-high, not edge).
+     * On nRF9160, level mode uses only SENSE in PIN_CNF and the PORT
+     * event — no GPIOTE channel is allocated, so HFCLK can stop during
+     * WFI sleep.  This single configuration works for both active
+     * callback-driven operation and low-power wake from sleep.
      */
     err = gpio_pin_interrupt_configure_dt(&motion_int, GPIO_INT_LEVEL_HIGH);
     if (err) {

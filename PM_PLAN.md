@@ -17,7 +17,7 @@ Achieve **sub-10 µA sleep** current on the nRF9160 in the Empty personality
 | **Typical current**     | ~0.6 µA                                         | **~2–5 µA**                                       | ~30–300 µA                            |
 | **Wake-up sources**     | GPIO SENSE only                                 | RTC, GPIO/GPIOTE, LPCOMP, UART, SPI, I2C, NFC     | Everything                            |
 | **Periodic timer**      | ❌ (RTC powered down)                           | ✅ **RTC compare**                                | ✅                                    |
-| **Motion wake (P0.30)** | ✅ (SENSE only, complex)                        | ✅ **GPIOTE** (simple, already works)             | ✅                                    |
+| **Motion wake (P0.30)** | ✅ (SENSE only, complex)                        | ✅ **SENSE + PORT event** (simple, already works) | ✅                                    |
 | **Reboot on wake**      | ✅ (full POR)                                   | ❌ **Resumes code**                               | ❌                                    |
 | **State retention**     | ❌ (SRAM lost)                                  | ✅ **SRAM retained**                              | ✅                                    |
 | **Code complexity**     | SENSE, open-drain, SPI clean, TF-M coordination | standard GPIO, no ping reconfig, no secure issues | Zero (no sleep)                       |
@@ -31,7 +31,7 @@ Achieve **sub-10 µA sleep** current on the nRF9160 in the Empty personality
 - **Dramatically simpler** — no GPIO SENSE, no open-drain, no SPI pin release, no TF-M coordination
 - **Resumes code** — no full reboot, no modem re-init needed (the modem is already off via `lte_lc_offline()`)
 - **RTC periodic wake** is built-in, no external hardware needed
-- The motion module's existing GPIOTE interrupt already works for wake
+- The motion module's existing `GPIO_INT_LEVEL_HIGH` already uses **SENSE + PORT event** (no GPIOTE channel) — it works for both active and sleep modes
 
 ---
 
@@ -54,31 +54,32 @@ stopping it.
 
 ### 3.1 What Already Exists
 
-| Area                                     | Status                                                                 | Notes                             |
-| ---------------------------------------- | ---------------------------------------------------------------------- | --------------------------------- |
-| `CONFIG_PM=y`                            | ✅ `prj.conf`                                                          | Enables Zephyr power management   |
-| `CONFIG_PM_DEVICE=y`                     | ✅ `prj.conf`                                                          | Enables device PM                 |
-| `CONFIG_PM_DEVICE_RUNTIME=y`             | ✅ `prj.conf`                                                          | Auto-suspends unused peripherals  |
-| Modem offline before sleep               | ✅ `lte_lc_offline()` called in `network_disconnect()`                 | Goes to `STATE_DISCONNECTED_IDLE` |
-| GPIOTE for motion wake                   | ✅ Already works                                                       | `GPIO_INT_LEVEL_HIGH` on P0.30    |
-| Main thread blocks on zbus               | ✅ `zbus_sub_wait_msg()`                                               | Thread is idle when no messages   |
-| Motion thread blocks on zbus             | ✅ Same pattern                                                        | Thread is idle                    |
-| Network thread blocks on zbus            | ✅ Same pattern                                                        | Thread is idle                    |
-| `sys_power_state_set(PM_STATE_SOFT_OFF)` | ❌ called but never reaches idle — **dead code pattern**               |
-| GPIO SENSE (low-power wake-up)           | ❌ not used — GPIOTE is active instead                                 |
-| LIS2DTW12 INT pin open-drain             | ❌ default push-pull will leak into nRF9160 in System OFF              |
-| Modem fully shut down before sleep       | ❌ `lte_lc_offline()` only, modem library still initialized            |
-| SPI pins released before sleep           | ❌ `low-power-enable` in pinctrl helps in System ON but not System OFF |
-| All threads stopped before sleep         | ❌ network, motion, main threads still alive                           |
+| Area                                     | Status                                                                                                                   | Notes                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `CONFIG_PM=y`                            | ✅ `prj.conf`                                                                                                            | Enables Zephyr power management                                      |
+| `CONFIG_PM_DEVICE=y`                     | ✅ `prj.conf`                                                                                                            | Enables device PM                                                    |
+| `CONFIG_PM_DEVICE_RUNTIME=y`             | ✅ `prj.conf`                                                                                                            | Auto-suspends unused peripherals                                     |
+| Modem offline before sleep               | ✅ `lte_lc_offline()` called in `network_disconnect()`                                                                   | Goes to `STATE_DISCONNECTED_IDLE`                                    |
+| GPIOTE for motion wake                   | ✅ Already works                                                                                                         | `GPIO_INT_LEVEL_HIGH` on P0.30 — uses SENSE+PORT, not GPIOTE channel |
+| Main thread blocks on zbus               | ✅ `zbus_sub_wait_msg()`                                                                                                 | Thread is idle when no messages                                      |
+| Motion thread blocks on zbus             | ✅ Same pattern                                                                                                          | Thread is idle                                                       |
+| Network thread blocks on zbus            | ✅ Same pattern                                                                                                          | Thread is idle                                                       |
+| `sys_power_state_set(PM_STATE_SOFT_OFF)` | ❌ called but never reaches idle — **dead code pattern**                                                                 |
+| GPIO SENSE (low-power wake-up)           | ✅ **Already active** — `GPIO_INT_LEVEL_HIGH` on nRF9160 sets SENSE in PIN_CNF and uses PORT event, not a GPIOTE channel |
+| LIS2DTW12 INT pin open-drain             | ❌ default push-pull will leak into nRF9160 in System OFF                                                                |
+| Modem fully shut down before sleep       | ❌ `lte_lc_offline()` only, modem library still initialized                                                              |
+| SPI pins released before sleep           | ❌ `low-power-enable` in pinctrl helps in System ON but not System OFF                                                   |
+| All threads stopped before sleep         | ❌ network, motion, main threads still alive                                                                             |
 
 ### 3.2 Why ~40 µA Floor Currently
 
 The ~40 µA is the nRF9160 with HFCLK running (active System ON). Suspects:
 
-1. **GPIOTE** — configured and armed for P0.30 interrupt. GPIOTE keeps HFCLK
-   running while armed → ~30–40 µA.
-   - **But** GPIOTE is needed for wake — this may be fine, but needs
-     verification that GPIOTE in "wait for event" mode doesn't force HFCLK.
+1. ~~GPIOTE~~ — **RESOLVED: Not the culprit.** `GPIO_INT_LEVEL_HIGH` on nRF9160
+   does **not** allocate a GPIOTE channel. The nRF GPIO driver uses only the
+   **SENSE** field in PIN_CNF + the **PORT event** for level triggers. No
+   GPIOTE channel means no HFCLK is kept running. The motion interrupt is
+   already configured in the lowest-power way possible for System ON sleep.
 
 2. **Modem library initialized** — `nrf_modem_lib_init()` was called. Even after
    `lte_lc_offline()`, the modem library holds internal resources.
@@ -232,9 +233,12 @@ void enter_wfi_sleep(void) {
     // (modem is already in offline mode from network_disconnect)
     nrf_modem_lib_shutdown();
 
-    // Step 4: Suspend motion module
-    // (disable P0.30 interrupt, put LIS2DTW12 into power-down)
-    motion_suspend_for_sleep();
+    // Step 4: Motion module
+    // No GPIO re-configuration needed — `GPIO_INT_LEVEL_HIGH` already uses
+    // SENSE + PORT event (no GPIOTE channel). The sensor stays active,
+    // INT1 continues to assert on motion, DETECT wakes the CPU from WFI.
+    // Only delete the task WDT entry so it doesn't fire during sleep:
+    motion_suspend_wdt();
 
     // Step 5: Delete task WDT entries (so they don't fire during sleep)
     network_suspend_wdt();
@@ -263,8 +267,9 @@ void wake_init(void) {
     // Step 1: Re-init the modem library
     nrf_modem_lib_init();
 
-    // Step 2: Resume motion module (wake LIS2DTW12, re-arm GPIO interrupt)
-    motion_resume_after_wake();
+    // Step 2: Resume motion module (re-add task WDT)
+    // No GPIO re-configuration needed — SENSE+PORT event was never changed.
+    motion_resume_wdt();
 
     // Step 3: Re-arm WDT entries
     network_resume_wdt();
@@ -281,90 +286,27 @@ void wake_init(void) {
 
 ### Phase 3: Motion Module Updates
 
-#### [ ] 3.1 Add suspend/resume functions
+#### [x] 3.1 GPIO SENSE investigation — **RESOLVED, no action needed**
 
-**File:** `src/modules/motion/motion.h`
+**Finding:** `GPIO_INT_LEVEL_HIGH` on the nRF9160 does NOT use a GPIOTE
+channel. The Zephyr nRF GPIO driver (gpio_nrfx.c) checks the trigger mode:
 
-```c
-int motion_suspend_for_sleep(void);
-int motion_resume_after_wake(void);
-void motion_suspend_wdt(void);
-void motion_resume_wdt(void);
-```
+- **Edge** (`GPIO_INT_MODE_EDGE`): allocates a GPIOTE IN channel
+- **Level** (`GPIO_INT_MODE_LEVEL`): uses only **SENSE** in PIN_CNF + **PORT event**
 
-**File:** `src/modules/motion/motion.c`
+Since `configure_interrupt()` already calls `gpio_pin_interrupt_configure_dt()
+with `GPIO_INT_LEVEL_HIGH`, the motion interrupt is already configured in the
+most power-efficient way for System ON sleep. No switching between modes is
+needed — the same configuration works for both active callback-driven operation
+and low-power wake from WFI.
 
-`motion_suspend_for_sleep()`:
+**No suspend/resume GPIO re-configuration is required.** The sensor stays in
+its normal operating mode the whole time; only the nRF9160 side detects INT1.
 
-```c
-int motion_suspend_for_sleep(void) {
-    int err;
+#### [ ] 3.2 Task WDT suspend/resume
 
-    // 1. Disable GPIO interrupt
-    err = gpio_pin_interrupt_configure_dt(&motion_int, GPIO_INT_DISABLE);
-    if (err) {
-        LOG_ERR("Failed to disable motion interrupt: %d", err);
-        return err;
-    }
-
-    // 2. Remove GPIO callback (so GPIOTE is fully released)
-    gpio_remove_callback(motion_int.port, &motion_int_cb_data);
-
-    // 3. Put LIS2DTW12 into power-down mode (~1 µA)
-    //    Write 0x00 to CTRL1 (register 0x20)
-    uint8_t ctrl1_val = 0;
-    err = lis2dtw12_write_reg(driver_ctx, LIS2DTW12_CTRL1, &ctrl1_val, 1);
-    if (err) {
-        LOG_ERR("Failed to put LIS2DTW12 into power-down: %d", err);
-        return err;
-    }
-
-    LOG_INF("Motion module suspended for sleep");
-    return 0;
-}
-```
-
-`motion_resume_after_wake()`:
-
-```c
-int motion_resume_after_wake(void) {
-    int err;
-
-    // 1. Re-init the sensor (wake from power-down)
-    //    Re-write the ODR and configuration
-    err = configure_sensor();
-    if (err) return err;
-
-    // 2. Re-configure the GPIO interrupt
-    err = configure_interrupt();
-    if (err) return err;
-
-    LOG_INF("Motion module resumed after wake");
-    return 0;
-}
-```
-
-`motion_suspend_wdt()` / `motion_resume_wdt()`:
 Store the `task_wdt_id` (currently a local) as a module-level variable,
-then:
-
-```c
-void motion_suspend_wdt(void) {
-    if (motion_task_wdt_id >= 0) {
-        task_wdt_delete(motion_task_wdt_id);
-        motion_task_wdt_id = -1;
-    }
-}
-
-void motion_resume_wdt(void) {
-    motion_task_wdt_id = task_wdt_add(wdt_timeout_ms,
-                                      mot_wdt_callback,
-                                      (void *)k_current_get());
-}
-```
-
-**Note:** This requires refactoring the motion thread to store
-`task_wdt_id` at module scope instead of a local.
+then add suspend/resume WDT functions (see Phase 6).
 
 ---
 
@@ -508,28 +450,30 @@ May help ensure SPI/PWM are truly powered down.
 
 ### Phase 8: GPIOTE and HFCLK Investigation
 
-#### [ ] 8.1 Measure whether GPIOTE keeps HFCLK alive
+#### [x] 8.1 GPIOTE vs SENSE — **RESOLVED via driver source analysis**
 
-This is the critical unknown. Two possibilities:
+The nRF GPIO Zephyr driver (gpio_nrfx.c) reveals:
 
-1. **GPIOTE with armed interrupt keeps HFCLK running** → need to
-   switch to PORT event (DETECT signal) for sleep phase
-2. **GPIOTE can be in "wait" mode without HFCLK** → no change needed
+```c
+// gpio_nrfx_pin_interrupt_configure logic:
+if (!edge_sense && mode == EDGE && dir == INPUT) {
+    // Allocate a GPIOTE IN channel
+    nrfx_gpiote_channel_get(...);
+} else {
+    // No GPIOTE channel — use SENSE + PORT event
+    nrfx_gpiote_channel_free(...);  // free any previous channel
+    trigger_config.p_in_channel = NULL;
+}
+```
 
-**If GPIOTE is the problem:** The fix is to temporarily reconfigure
-P0.30 to use the GPIO PORT event instead of GPIOTE during sleep.
-On the nRF9160, the PORT event is a low-power alternative that
-doesn't require HFCLK — it's essentially the same as SENSE but
-accessible through the standard GPIO driver API.
+Since `GPIO_INT_LEVEL_HIGH` is level mode (not edge), the `else` branch is
+taken: **no GPIOTE channel is allocated**. The `pin_trigger_enable()` function
+calls `nrfy_gpio_cfg_sense_set(pin, SENSE_HIGH)` and enables only the PORT
+interrupt (`NRF_GPIOTE_INT_PORT_MASK`).
 
-**How to test:** Build the current code, enter sleep state, measure
-current. If still ~40 µA, GPIOTE is likely the culprit.
-
-**Fallback if needed:** Before sleep:
-
-1. Disable GPIOTE interrupt on P0.30
-2. Re-configure the pin using the PORT mechanism
-3. This is simpler than full SENSE config from the old System OFF plan
+**Conclusion:** The motion interrupt is already using the GPIO PORT event
+(DETECT signal) with SENSE. No GPIOTE channel is involved, so HFCLK is not
+kept running by the motion interrupt. No fallback or reconfiguration is needed.
 
 ---
 
@@ -549,8 +493,8 @@ current. If still ~40 µA, GPIOTE is likely the culprit.
 | `src/personalities/empty.h`     | Add `personality_is_sleeping()`, add `motion_chan` to channel list                          |
 | `src/personalities/empty.c`     | Add `sleep_requested` flag, handle motion/RTC wake in `sleeping_run`, cancel fallback timer |
 | `src/main.c`                    | Check `personality_is_sleeping()`, call `enter_wfi_sleep()`                                 |
-| `src/modules/motion/motion.h`   | Add suspend/resume/WDT functions                                                            |
-| `src/modules/motion/motion.c`   | Implement suspend/resume, store `task_wdt_id` at module scope                               |
+| `src/modules/motion/motion.h`   | Add WDT suspend/resume functions only (no GPIO re-config needed)                            |
+| `src/modules/motion/motion.c`   | Store `task_wdt_id` at module scope, add WDT suspend/resume (no GPIO re-config needed)      |
 | `src/modules/network/network.h` | Add WDT suspend/resume functions, add `network_resume()`                                    |
 | `src/modules/network/network.c` | Implement, store `task_wdt_id` at module scope                                              |
 | `src/common/heartbeat.h`        | Add `heartbeat_stop()`, `heartbeat_start()`                                                 |
@@ -571,7 +515,7 @@ current. If still ~40 µA, GPIOTE is likely the culprit.
 - [ ] Multiple wake-sleep cycles work without memory leaks or state corruption
 - [ ] WDT correctly disabled during sleep, re-enabled on wake
 - [ ] Heartbeat suppressed during sleep, resumes on wake
-- [ ] GPIOTE does not prevent deep idle (measure current with/without J-Link)
+- [x] GPIOTE does not prevent deep idle — driver analysis confirms SENSE+PORT event, no GPIOTE channel
 - [ ] PWM0 does not keep HFCLK active when idle
 
 ---
@@ -579,8 +523,9 @@ current. If still ~40 µA, GPIOTE is likely the culprit.
 ## 7. Open Questions
 
 1. **Does GPIOTE with an armed interrupt force HFCLK to stay on?**
-   - If yes → need PORT event fallback (see Phase 8)
-   - Testing with a DMM after entering sleep will confirm
+   - **RESOLVED:** `GPIO_INT_LEVEL_HIGH` does NOT allocate a GPIOTE channel.
+     It uses SENSE + PORT event, no HFCLK needed. See Phase 8.1.
+   - Still worth measuring with a DMM to confirm no other source keeps HFCLK on.
 
 2. **`k_timeout_t` max value for 7-day timer?**
    - `K_SECONDS(604800)` may overflow internal tick math (~18 h limit)
