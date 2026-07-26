@@ -121,7 +121,7 @@ static void sampling_entry(void *o) {
     lt_state_name = "sampling";
     LOG_INF("sampling (cycle every %us)", state->sample_interval_sec);
     state->location_received = false;
-    state->is_gnss_search = !state->use_cellular_next;
+    /*state->is_gnss_search = !state->use_cellular_next;
     if (state->use_cellular_next) {
         LOG_INF("requesting cellular location");
         fire_location_search(LOCATION_CELLULAR_SEARCH_TRIGGER);
@@ -129,10 +129,13 @@ static void sampling_entry(void *o) {
         LOG_INF("requesting GNSS location");
         fire_location_search(LOCATION_GNSS_SEARCH_TRIGGER);
     }
-    state->use_cellular_next = !state->use_cellular_next;
+    state->use_cellular_next = !state->use_cellular_next;*/
+    state->is_gnss_search = true;
+    LOG_INF("requesting GNSS location");
+    fire_location_search(LOCATION_GNSS_SEARCH_TRIGGER);
 
-    /* Arm a fallback timer in case location never comes back (2 min default + margin). */
-    timer_arm(150);
+    /* Arm a fallback timer in case location never comes back (10 min default + margin). */
+    timer_arm(660);
     lt_state_name = "waiting_location";
     smf_set_state(SMF_CTX(state), &states[LOCATION_TEST_STATE_WAITING_LOCATION]);
 }
