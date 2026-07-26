@@ -124,11 +124,6 @@ struct network_msg {
          *  psm_cfg is valid for NETWORK_PSM_PARAMS events.
          */
         IF_ENABLED(CONFIG_LTE_LC_PSM_MODULE, (struct lte_lc_psm_cfg psm_cfg));
-
-        /** Contains the current eDRX configuration.
-         *  edrx_cfg is valid for NETWORK_EDRX_PARAMS events.
-         */
-        IF_ENABLED(CONFIG_LTE_LC_EDRX_MODULE, (struct lte_lc_edrx_cfg edrx_cfg));
     };
 };
 

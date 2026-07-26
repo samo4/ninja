@@ -132,13 +132,6 @@ static void network_msg_send(const struct network_msg *msg) {
     }
 }
 
-static struct k_work_delayable connected_dwork;
-
-static void connected_dwork_handler(struct k_work *work) {
-    LOG_INF(VT100_GREEN "Network ready" VT100_RESET);
-    network_status_notify(NETWORK_CONNECTED);
-}
-
 static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
     switch (evt->type) {
         case LTE_LC_EVT_NW_REG_STATUS:
@@ -168,27 +161,21 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_PDN:
             switch (evt->pdn.type) {
                 case LTE_LC_EVT_PDN_ACTIVATED: {
-                    int pdn_err = k_work_schedule(&connected_dwork, K_SECONDS(30));
-                    if (pdn_err < 0) {
-                        LOG_ERR("Failed to schedule connected work, error: %d", pdn_err);
-                    }
-                    LOG_DBG("PDN connection activated, will notify connected in 30s");
+                    LOG_INF("PDN connection activated, network ready");
+                    network_status_notify(NETWORK_CONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_DEACTIVATED: {
-                    k_work_cancel_delayable(&connected_dwork);
                     LOG_DBG("deactivated");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_NETWORK_DETACH: {
-                    k_work_cancel_delayable(&connected_dwork);
                     LOG_DBG("detach");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
                 }
                 case LTE_LC_EVT_PDN_SUSPENDED: {
-                    k_work_cancel_delayable(&connected_dwork);
                     LOG_INF("suspended");
                     network_status_notify(NETWORK_DISCONNECTED);
                     break;
@@ -227,16 +214,6 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
             network_msg_send(&msg);
             break;
         }
-        case LTE_LC_EVT_EDRX_UPDATE: {
-            struct network_msg msg = {
-                .type = NETWORK_EDRX_PARAMS,
-                .edrx_cfg = evt->edrx_cfg,
-            };
-            LOG_DBG("eDRX parameters received, mode: %d, eDRX: %0.2f s, PTW: %.02f s", msg.edrx_cfg.mode,
-                    (double)msg.edrx_cfg.edrx, (double)msg.edrx_cfg.ptw);
-            network_msg_send(&msg);
-            break;
-        }
         case LTE_LC_EVT_LTE_MODE_UPDATE:
             LOG_INF("LTE mode: %s", evt->lte_mode == 7 ? "LTE-M" : evt->lte_mode == 9 ? "NB-IoT" : "other");
             break;
@@ -246,12 +223,7 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt) {
         case LTE_LC_EVT_CELL_UPDATE:
             // LOG_INF("Cell: TAC %u ID %u", evt->cell.tac, evt->cell.id);
             break;
-        case LTE_LC_EVT_MODEM_SLEEP_EXIT:
-            // LOG_DBG("Modem sleep exit");
-            break;
-        case LTE_LC_EVT_MODEM_SLEEP_ENTER:
-            // LOG_DBG("Modem sleep enter (type %d)", evt->modem_sleep.type);
-            break;
+
         default:
             LOG_DBG("Unhandled LTE event type: %d", evt->type);
             break;
@@ -305,7 +277,6 @@ static void state_running_entry(void *obj) {
         return;
     }
 
-    k_work_init_delayable(&connected_dwork, connected_dwork_handler);
     LOG_DBG("Network module started");
 }
 
